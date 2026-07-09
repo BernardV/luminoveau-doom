@@ -374,8 +374,18 @@ void I_NetCmd(void) {}
 
 void DG_Init(int argc, char** argv)
 {
-    myargc = argc;
-    myargv = argv;
+    // DOOM_WARP=1 jumps straight into E1M1 (skips the menu) — handy for verifying
+    // the GPU world renderer. Synthesizes "-warp 1 1" onto the command line.
+    static char* warpv[8];
+    if (getenv("DOOM_WARP")) {
+        int n = 0, i;
+        for (i = 0; i < argc && n < 4; i++) warpv[n++] = argv[i];
+        warpv[n++] = "-warp"; warpv[n++] = "1"; warpv[n++] = "1";
+        myargc = n; myargv = warpv;
+    } else {
+        myargc = argc;
+        myargv = argv;
+    }
     D_DoomMain();   // returns after one-time init (loop is driven by DG_Tic)
 }
 

@@ -1,8 +1,8 @@
 // DoomRenderPass — game-side custom Luminoveau RenderPass for the GPU Doom
-// renderer (see plan.md). Fase 0: scaffolding only — draws a single colored
-// triangle from its own graphics pipeline, built from GLSL shaders loaded via
-// AssetHandler::GetShader (auto-transpiled to SPIRV/Metal/WGSL per backend).
-// Later phases grow this into the real world renderer (walls/flats/sprites).
+// renderer (see plan.md). Fase 1: renders the level's walls as camera-projected
+// quads (untextured, shaded by sector light) with a depth buffer, from geometry
+// + view params bridged out of the Doom core (dg_render.c). Textures, flats,
+// sprites, lighting come in later phases.
 #pragma once
 
 #include "gpu/renderpass.h"
@@ -16,18 +16,24 @@ public:
               size_t capacity = 0, bool forceNoMSAA = false) override;
 
     void release(bool logRelease = true) override;
+    void onResize(uint32_t surfaceWidth, uint32_t surfaceHeight) override;
 
     void render(GpuCmdBufferHandle cmdBuffer,
                 GpuTextureHandle   targetTexture,
                 const glm::mat4&   camera) override;
 
-    // Unused base-class hooks (this pass pulls its data directly, like Model3DRenderPass).
     void addToRenderQueue(const Renderable& /*renderable*/) override {}
     void resetRenderQueue() override {}
     UniformBuffer& getUniformBuffer() override { static UniformBuffer dummy; return dummy; }
 
 private:
+    void ensureGeometry();          // (re)upload wall geometry when the level changes
+    void createDepth(uint32_t w, uint32_t h);
+
     GpuBufferHandle m_vertexBuffer = 0;
-    uint32_t        m_vertexCount  = 0;
+    uint32_t        m_vertexBytes  = 0;   // current buffer capacity in bytes
+    uint32_t        m_vertexCount  = 0;   // vertices to draw
+    unsigned        m_geomVersion  = 0xffffffffu;
     GpuSampleCount  m_sampleCount  = GpuSampleCount::x1;
+    uint32_t        m_depthW = 0, m_depthH = 0;
 };

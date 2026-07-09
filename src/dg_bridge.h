@@ -52,6 +52,21 @@ void DG_MixAudio(float* output, unsigned int frameCount,
 void DG_MusicInit(void);
 void DG_MusicMix(float* output, unsigned int frameCount, unsigned int channels);
 
+// ── GPU renderer geometry/view bridge (dg_render.c, plan.md Fase 1) ─────────
+
+// True once a level is loaded and its geometry is available.
+int DG_WorldReady(void);
+
+// Returns the wall geometry as interleaved floats: {x,y,z,shade} per vertex,
+// triangles (3 verts each), in engine space. *outFloatCount = total floats
+// (verts*4). *outVersion bumps whenever the geometry is rebuilt (level change),
+// so the host can re-upload only when it changes. NULL/0 when no level.
+const float* DG_WorldVertices(int* outFloatCount, unsigned* outVersion);
+
+// Current camera: pos3 = engine-space eye {x, y_up, z}; yaw in radians (Doom
+// angle, CCW from +X); pitch in radians (0 until mouselook, Fase 5).
+void DG_GetView(float* pos3, float* yawRad, float* pitchRad);
+
 // ── Doom keycodes (mirror doomdef.h; kept here so C++ needn't include it) ───
 #define DG_KEY_RIGHTARROW 0xae
 #define DG_KEY_LEFTARROW  0xac

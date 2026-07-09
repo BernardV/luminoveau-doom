@@ -209,9 +209,11 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
     if (getenv("DOOM_GPU")) {
         static DoomRenderPass doomPass;
         auto& gpu = Renderer::GetGpu();
-        if (doomPass.init(gpu.getSwapchainFormat(),
-                          Window::GetPhysicalWidth(), Window::GetPhysicalHeight(),
-                          "doom3d")) {
+        // Init at the primary framebuffer's size (desktop bounds), so the pass's
+        // own depth target matches the color target it renders into.
+        uint32_t dw = 0, dh = 0;
+        Window::GetDisplayBounds(dw, dh);
+        if (doomPass.init(gpu.getSwapchainFormat(), dw, dh, "doom3d")) {
             Renderer::AttachRenderPassToFrameBuffer(&doomPass, "doom3d", "primaryFramebuffer");
         }
     }

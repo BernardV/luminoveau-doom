@@ -1,6 +1,8 @@
 #include "DoomRenderPass.h"
 
 #include <cstring>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include "core/log/log.h"
 #include "gpu/IGpu.h"
@@ -8,40 +10,49 @@
 #include "renderer/renderer.h"
 #include "platform/window/window.h"
 
-namespace {
-// Interleaved pos(vec2) + color(vec3); a centered triangle in NDC.
-struct TestVertex { float x, y, r, g, b; };
-constexpr TestVertex kTriangle[] = {
-    { 0.0f,  0.6f, 1.0f, 0.2f, 0.2f },
-    {-0.6f, -0.5f, 0.2f, 1.0f, 0.3f },
-    { 0.6f, -0.5f, 0.3f, 0.4f, 1.0f },
-};
+extern "C" {
+#include "dg_bridge.h"
+}
+
+// Vertex layout produced by dg_render.c: pos(vec3) + shade(float) = 16 bytes.
+struct WorldVertex { float x, y, z, shade; };
+
+void DoomRenderPass::createDepth(uint32_t w, uint32_t h) {
+    IGpu& gpu = Renderer::GetGpu();
+    if (m_depth_texture.gpuTexture) { gpu.releaseTexture(m_depth_texture.gpuTexture); m_depth_texture.gpuTexture = 0; }
+    GpuTextureCreateInfo d{};
+    d.width = w ? w : 1; d.height = h ? h : 1;
+    d.depthOrLayers = 1; d.numLevels = 1;
+    d.format = GpuTextureFormat::D32_Float;
+    d.sampleCount = GpuSampleCount::x1;
+    d.usage = GpuTextureUsage::DepthStencilTarget;
+    m_depth_texture.gpuTexture = gpu.createTexture(d);
+    m_depthW = w; m_depthH = h;
 }
 
 bool DoomRenderPass::init(GpuTextureFormat swapchainFormat,
-                          uint32_t /*surfaceWidth*/, uint32_t /*surfaceHeight*/,
+                          uint32_t surfaceWidth, uint32_t surfaceHeight,
                           std::string name, bool logInit,
                           size_t /*capacity*/, bool /*forceNoMSAA*/) {
     passname      = std::move(name);
     m_sampleCount = Renderer::GetSampleCount();
     IGpu& gpu     = Renderer::GetGpu();
 
-    // GLSL shaders → backend blobs, handled by the engine. GetShader returns a
-    // ShaderAsset with a ready gpuShader handle + reflected bind counts.
-    // PhysFS mounts the cwd (the dir containing assets/), so engine assets are
-    // referenced with the "assets/" prefix — matches the engine's own examples.
-    Shader vs = AssetHandler::GetShader("assets/shaders/doom_test.vert");
-    Shader fs = AssetHandler::GetShader("assets/shaders/doom_test.frag");
-    if (!vs.gpuShader || !fs.gpuShader) {
-        LOG_ERROR("DoomRenderPass: shader load failed");
-        return false;
-    }
+    // Own depth (used when the renderer doesn't supply a shared MSAA depth).
+    // Must match the primary framebuffer's color target size (desktop-sized).
+    createDepth(surfaceWidth, surfaceHeight);
+    if (!m_depth_texture.gpuTexture) { LOG_ERROR("DoomRenderPass: depth creation failed"); return false; }
+
+    // GLSL shaders → per-backend blobs handled by the engine.
+    Shader vs = AssetHandler::GetShader("assets/shaders/doom_world.vert");
+    Shader fs = AssetHandler::GetShader("assets/shaders/doom_world.frag");
+    if (!vs.gpuShader || !fs.gpuShader) { LOG_ERROR("DoomRenderPass: shader load failed"); return false; }
 
     static GpuVertexAttribute attrs[2] = {
-        { .location = 0, .binding = 0, .format = GpuVertexElementFormat::Float2, .offset = 0 },
-        { .location = 1, .binding = 0, .format = GpuVertexElementFormat::Float3, .offset = 8 },
+        { .location = 0, .binding = 0, .format = GpuVertexElementFormat::Float3, .offset = 0  },
+        { .location = 1, .binding = 0, .format = GpuVertexElementFormat::Float,  .offset = 12 },
     };
-    static GpuVertexBinding vbind = { .binding = 0, .stride = sizeof(TestVertex), .instanceStepping = false };
+    static GpuVertexBinding vbind = { .binding = 0, .stride = sizeof(WorldVertex), .instanceStepping = false };
 
     GpuGraphicsPipelineCreateInfo pci{};
     pci.vertexShader      = vs.gpuShader;
@@ -51,71 +62,115 @@ bool DoomRenderPass::init(GpuTextureFormat swapchainFormat,
     pci.bindings          = &vbind;
     pci.bindingCount      = 1;
     pci.fillMode          = GpuFillMode::Fill;
-    pci.cullMode          = GpuCullMode::None;
+    pci.cullMode          = GpuCullMode::None;      // Fase 1: no backface culling yet
     pci.frontFace         = GpuFrontFace::CounterClockwise;
     pci.colorTargetFormat = swapchainFormat;
-    pci.hasDepthTarget    = false;
+    pci.hasDepthTarget    = true;
+    pci.depthTargetFormat = GpuTextureFormat::D32_Float;
     pci.sampleCount       = m_sampleCount;
     m_pipeline = gpu.createGraphicsPipeline(pci);
-    if (!m_pipeline) {
-        LOG_ERROR("DoomRenderPass: pipeline creation failed");
-        return false;
-    }
-
-    // Upload the triangle vertex buffer once.
-    const uint32_t bytes = (uint32_t)sizeof(kTriangle);
-    m_vertexBuffer = gpu.createBuffer({ bytes, GpuBufferUsage::Vertex });
-    GpuTransferBufferHandle tb = gpu.createTransferBuffer({ bytes, GpuTransferUsage::Upload });
-    if (!m_vertexBuffer || !tb) {
-        LOG_ERROR("DoomRenderPass: vertex buffer creation failed");
-        return false;
-    }
-    void* ptr = gpu.mapTransferBuffer(tb, false);
-    std::memcpy(ptr, kTriangle, bytes);
-    gpu.unmapTransferBuffer(tb);
-    GpuCmdBufferHandle cmd = gpu.acquireCommandBuffer();
-    gpu.uploadToBuffer(cmd, tb, 0, m_vertexBuffer, 0, bytes, false);
-    gpu.submitCommandBuffer(cmd);
-    gpu.releaseTransferBuffer(tb);
-    m_vertexCount = 3;
+    if (!m_pipeline) { LOG_ERROR("DoomRenderPass: pipeline creation failed"); return false; }
 
     if (logInit) LOG_INFO("DoomRenderPass: initialized ({})", passname.c_str());
     return true;
 }
 
-void DoomRenderPass::release(bool /*logRelease*/) {
+void DoomRenderPass::onResize(uint32_t w, uint32_t h) { createDepth(w, h); }
+
+void DoomRenderPass::ensureGeometry() {
+    int floatCount = 0; unsigned version = 0;
+    const float* data = DG_WorldVertices(&floatCount, &version);
+    if (!data || floatCount == 0) { m_vertexCount = 0; return; }
+    if (version == m_geomVersion && m_vertexBuffer) return;   // unchanged
+
     IGpu& gpu = Renderer::GetGpu();
-    if (m_vertexBuffer) { gpu.releaseBuffer(m_vertexBuffer); m_vertexBuffer = 0; }
-    // Pipeline lifetime is managed by the backend/device teardown.
-    m_pipeline = 0;
+    const uint32_t bytes = (uint32_t)(floatCount * sizeof(float));
+
+    if (bytes > m_vertexBytes) {   // (re)allocate the GPU buffer to fit
+        if (m_vertexBuffer) gpu.releaseBuffer(m_vertexBuffer);
+        m_vertexBuffer = gpu.createBuffer({ bytes, GpuBufferUsage::Vertex });
+        m_vertexBytes  = bytes;
+    }
+    if (!m_vertexBuffer) { m_vertexCount = 0; return; }
+
+    GpuTransferBufferHandle tb = gpu.createTransferBuffer({ bytes, GpuTransferUsage::Upload });
+    if (!tb) { m_vertexCount = 0; return; }
+    void* ptr = gpu.mapTransferBuffer(tb, false);
+    std::memcpy(ptr, data, bytes);
+    gpu.unmapTransferBuffer(tb);
+    GpuCmdBufferHandle cmd = gpu.acquireCommandBuffer();
+    gpu.uploadToBuffer(cmd, tb, 0, m_vertexBuffer, 0, bytes, false);
+    gpu.submitCommandBuffer(cmd);
+    gpu.releaseTransferBuffer(tb);
+
+    m_vertexCount = (uint32_t)(floatCount / 4);
+    m_geomVersion = version;
 }
 
 void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
                             GpuTextureHandle   targetTexture,
-                            const glm::mat4&   /*camera*/) {
-    if (!m_pipeline || !m_vertexBuffer) return;
+                            const glm::mat4&   /*camera2d*/) {
+    if (!m_pipeline) return;
+
+    // Only draw when a level is loaded; otherwise leave the frame untouched
+    // (the software HUD/menu blit shows through).
+    if (!DG_WorldReady()) return;
+    ensureGeometry();
+    if (!m_vertexCount || !m_vertexBuffer) return;
+
     IGpu& gpu = Renderer::GetGpu();
 
-    const bool shouldResolve = (renderTargetResolve != 0);
+    // ── Camera: build view + projection from Doom's view params ───────────────
+    float eye[3], yaw, pitch;
+    DG_GetView(eye, &yaw, &pitch);
+    glm::vec3 pos(eye[0], eye[1], eye[2]);
+    // Doom yaw is CCW from +X in the floor plane (engine XZ). Forward maps to
+    // (cos yaw, 0, sin yaw); pitch tilts it up/down (0 for now).
+    glm::vec3 fwd(std::cos(yaw) * std::cos(pitch), std::sin(pitch), std::sin(yaw) * std::cos(pitch));
+    glm::mat4 view = glm::lookAtLH(pos, pos + fwd, glm::vec3(0, 1, 0));
 
+    const float aspect = (float)Window::GetPhysicalWidth() / (float)Window::GetPhysicalHeight();
+    // Doom is ~90° horizontal FOV. glm perspective takes vertical FOV; derive it
+    // from the horizontal FOV at this aspect.
+    const float hFov = glm::radians(90.0f);
+    const float vFov = 2.0f * std::atan(std::tan(hFov * 0.5f) / (aspect > 0 ? aspect : 1.0f));
+    glm::mat4 proj = glm::perspectiveLH_ZO(vFov, aspect, 1.0f, 20000.0f);
+    glm::mat4 mvp  = proj * view;
+
+    // ── Render pass ───────────────────────────────────────────────────────────
+    const bool shouldResolve = (renderTargetResolve != 0);
     GpuColorTargetInfo ct{};
     ct.texture        = targetTexture;
     ct.resolveTexture = renderTargetResolve;
-    ct.loadOp         = color_target_info_loadop;   // Load: composite over prior passes
+    ct.loadOp         = color_target_info_loadop;
     ct.storeOp        = shouldResolve ? GpuStoreOp::Resolve : GpuStoreOp::Store;
     ct.clearR = color_target_clear_r; ct.clearG = color_target_clear_g;
     ct.clearB = color_target_clear_b; ct.clearA = color_target_clear_a;
 
-    GpuRenderPassHandle rp = gpu.beginRenderPass(cmdBuffer, &ct, 1, nullptr);
+    GpuDepthStencilTargetInfo dt{};
+    dt.texture    = renderTargetDepth ? renderTargetDepth : m_depth_texture.gpuTexture;
+    dt.loadOp     = GpuLoadOp::Clear;
+    dt.storeOp    = GpuStoreOp::Store;
+    dt.clearDepth = 1.0f;
+
+    GpuRenderPassHandle rp = gpu.beginRenderPass(cmdBuffer, &ct, 1, &dt);
     render_pass = rp;
     gpu.setViewport(rp, 0.0f, 0.0f,
                     (float)Window::GetPhysicalWidth(), (float)Window::GetPhysicalHeight(),
                     0.0f, 1.0f);
 
     gpu.bindGraphicsPipeline(rp, m_pipeline);
+    gpu.pushVertexUniformData(cmdBuffer, 0, &mvp, sizeof(mvp));
     GpuBufferBinding vb{ m_vertexBuffer, 0 };
     gpu.bindVertexBuffers(rp, 0, &vb, 1);
     gpu.drawPrimitives(rp, m_vertexCount, 1, 0, 0);
 
     gpu.endRenderPass(rp);
+}
+
+void DoomRenderPass::release(bool /*logRelease*/) {
+    IGpu& gpu = Renderer::GetGpu();
+    if (m_vertexBuffer)          { gpu.releaseBuffer(m_vertexBuffer); m_vertexBuffer = 0; }
+    if (m_depth_texture.gpuTexture) { gpu.releaseTexture(m_depth_texture.gpuTexture); m_depth_texture.gpuTexture = 0; }
+    m_pipeline = 0;
 }
