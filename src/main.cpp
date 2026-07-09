@@ -18,6 +18,8 @@ extern "C" {
 #include "dg_bridge.h"
 }
 
+#include "DoomRenderPass.h"
+
 // setenv() doesn't exist in the Windows CRT; use _putenv_s there.
 static void Dg_SetEnv(const char* key, const char* value) {
 #ifdef _WIN32
@@ -200,6 +202,19 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
     static PCMSound pcm = Audio::CreatePCMGenerator(
         PCMFormat{DG_AUDIO_RATE, 2}, &DG_MixAudio, nullptr);
     Audio::PlayPCMSound(pcm, AudioChannel::SFX);
+
+    // GPU renderer (see plan.md). Fase 0: opt-in scaffolding — a custom RenderPass
+    // that draws a triangle over the frame, proving the pass + GLSL pipeline work
+    // on every backend. Enable with DOOM_GPU=1.
+    if (getenv("DOOM_GPU")) {
+        static DoomRenderPass doomPass;
+        auto& gpu = Renderer::GetGpu();
+        if (doomPass.init(gpu.getSwapchainFormat(),
+                          Window::GetPhysicalWidth(), Window::GetPhysicalHeight(),
+                          "doom3d")) {
+            Renderer::AttachRenderPassToFrameBuffer(&doomPass, "doom3d", "primaryFramebuffer");
+        }
+    }
 
     return Lumi::Result::Continue;
 }

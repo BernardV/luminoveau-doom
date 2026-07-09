@@ -47,7 +47,8 @@ endif()
 add_executable(doom
     "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/i_lumi.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/dg_music.c")
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/dg_music.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/DoomRenderPass.cpp")
 
 target_include_directories(doom PRIVATE
     "${DOOM_SRC_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/src")
