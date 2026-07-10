@@ -36,4 +36,6 @@ private:
     unsigned        m_geomVersion  = 0xffffffffu;
     GpuSampleCount  m_sampleCount  = GpuSampleCount::x1;
     uint32_t        m_depthW = 0, m_depthH = 0;
+
+    GpuGraphicsPipelineHandle m_skyPipeline = 0;   // fullscreen sky background
 };

@@ -125,6 +125,26 @@ bool DoomRenderPass::init(GpuTextureFormat swapchainFormat,
     m_pipeline = gpu.createGraphicsPipeline(pci);
     if (!m_pipeline) { LOG_ERROR("DoomRenderPass: pipeline creation failed"); return false; }
 
+    // Sky pipeline: fullscreen triangle (no vertex buffer), no depth. Drawn first
+    // each frame; the world then draws over it, so sky shows only through openings.
+    Shader skyv = AssetHandler::GetShader("assets/shaders/doom_sky.vert");
+    Shader skyf = AssetHandler::GetShader("assets/shaders/doom_sky.frag");
+    if (skyv.gpuShader && skyf.gpuShader) {
+        GpuGraphicsPipelineCreateInfo spci{};
+        spci.vertexShader      = skyv.gpuShader;
+        spci.fragmentShader    = skyf.gpuShader;
+        spci.attributeCount    = 0;   // positions generated from gl_VertexIndex
+        spci.bindingCount      = 0;
+        spci.fillMode          = GpuFillMode::Fill;
+        spci.cullMode          = GpuCullMode::None;
+        spci.colorTargetFormat = swapchainFormat;
+        spci.hasDepthTarget    = true;   // must match the pass's depth attachment
+        spci.depthTargetFormat = GpuTextureFormat::D32_Float;
+        spci.sampleCount       = m_sampleCount;
+        m_skyPipeline = gpu.createGraphicsPipeline(spci);
+    }
+    if (!m_skyPipeline) LOG_WARNING("DoomRenderPass: sky pipeline unavailable (sky disabled)");
+
     if (logInit) LOG_INFO("DoomRenderPass: initialized ({})", passname.c_str());
     return true;
 }
@@ -168,6 +188,7 @@ void DoomRenderPass::ensureGeometry() {
         DG_DrawGroup(g, &kind, &texid, &first, &count);
         uploadTexture(kind, texid);
     }
+    uploadTexture(DG_KIND_WALL, DG_SkyTextureId());   // sky is a composite texture
 }
 
 void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
@@ -223,6 +244,21 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
     GpuRenderPassHandle rp = gpu.beginRenderPass(cmdBuffer, &ct, 1, &dt);
     render_pass = rp;
     gpu.setViewport(rp, ox, oy, boxW, viewH, 0.0f, 1.0f);
+
+    // Sky background first (fullscreen, no depth interaction); world draws over it.
+    GpuTextureHandle skyTex = m_skyPipeline ? uploadTexture(DG_KIND_WALL, DG_SkyTextureId()) : 0;
+    if (skyTex) {
+        struct { float yawTurns, uSpan, vScale, vBias; } sp;
+        sp.yawTurns = yaw / (float)(M_PI * 0.5);   // one sky width per 90°
+        sp.uSpan    = hFov / (float)(M_PI * 0.5);  // texture-widths across the screen
+        sp.vScale   = 1.0f;                          // maps view-y 0..1 into sky v (tune later)
+        sp.vBias    = 0.0f;
+        gpu.bindGraphicsPipeline(rp, m_skyPipeline);
+        GpuTextureSamplerBinding sky{ skyTex, g_wallSampler };
+        gpu.bindFragmentSamplers(rp, 0, &sky, 1);
+        gpu.pushFragmentUniformData(cmdBuffer, 0, &sp, sizeof(sp));
+        gpu.drawPrimitives(rp, 3, 1, 0, 0);
+    }
 
     gpu.bindGraphicsPipeline(rp, m_pipeline);
     gpu.pushVertexUniformData(cmdBuffer, 0, &mvp, sizeof(mvp));

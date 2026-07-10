@@ -75,6 +75,9 @@ const unsigned char* DG_WallTextureRGBA(int texid, int* w, int* h);
 // Flat (floor/ceiling) as RGBA8 via PLAYPAL, cached. Always 64x64. NULL if invalid.
 const unsigned char* DG_FlatTextureRGBA(int picnum, int* w, int* h);
 
+// Current sky texture id (a composite texture id; fetch pixels via DG_WallTextureRGBA).
+int DG_SkyTextureId(void);
+
 // Current camera: pos3 = engine-space eye {x, y_up, z}; yaw in radians (Doom
 // angle, CCW from +X); pitch in radians (0 until mouselook, Fase 5).
 void DG_GetView(float* pos3, float* yawRad, float* pitchRad);

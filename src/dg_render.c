@@ -293,6 +293,12 @@ const unsigned char* DG_FlatTextureRGBA(int picnum, int* w, int* h) {
     g_flatRGBA[picnum] = out; *w = *h = 64; return out;
 }
 
+// Current sky texture id (a composite texture id, usable with DG_WallTextureRGBA).
+int DG_SkyTextureId(void) {
+    extern int skytexture;
+    return skytexture;
+}
+
 void DG_GetView(float* pos3, float* yawRad, float* pitchRad) {
     pos3[0] = FX(viewx); pos3[1] = FX(viewz); pos3[2] = FX(viewy);
     *yawRad = (float)((double)viewangle / 4294967296.0 * (2.0 * M_PI));
