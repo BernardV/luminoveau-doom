@@ -428,8 +428,13 @@ const unsigned char* DG_SpriteTextureRGBA(int lump, int* w, int* h) {
     *w = pw; *h = ph; return out;
 }
 
+// Renderer-only pitch (look up/down) — Doom has no pitch concept, so the host
+// tracks it from mouse Y and pushes it here. Radians; + = look up.
+static float g_pitch = 0.0f;
+void DG_SetPitch(float pitchRad) { g_pitch = pitchRad; }
+
 void DG_GetView(float* pos3, float* yawRad, float* pitchRad) {
     pos3[0] = FX(viewx); pos3[1] = FX(viewz); pos3[2] = FX(viewy);
     *yawRad = (float)((double)viewangle / 4294967296.0 * (2.0 * M_PI));
-    *pitchRad = 0.0f;
+    *pitchRad = g_pitch;
 }

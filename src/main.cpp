@@ -140,7 +140,9 @@ static int SdlKeyToDoom(SDL_Keycode kc)
     }
 }
 
-static int g_mouseButtons = 0;
+static int   g_mouseButtons = 0;
+static bool  g_gpuMode = false;   // GPU renderer active (enables mouselook)
+static float g_pitch   = 0.0f;    // look up/down angle, radians
 
 // Keyboard is polled from SDL_GetKeyboardState each frame (edge-detected) rather
 // than relying on SDL_EVENT_KEY_* callbacks, which proved unreliable on macOS
@@ -215,8 +217,13 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
         Window::GetDisplayBounds(dw, dh);
         if (doomPass.init(gpu.getSwapchainFormat(), dw, dh, "doom3d")) {
             Renderer::AttachRenderPassToFrameBuffer(&doomPass, "doom3d", "primaryFramebuffer");
+            g_gpuMode = true;
         }
     }
+
+    // Mouselook needs relative mouse mode (locked, hidden cursor, raw deltas).
+    // Only in GPU mode — pitch is a renderer-only feature the software view lacks.
+    if (g_gpuMode) Window::SetRelativeMouseMode(true);
 
     return Lumi::Result::Continue;
 }
@@ -224,6 +231,19 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
 Lumi::Result AppIterate(void* /*appstate*/)
 {
     PollKeyboard();                    // feed keyboard edges into Doom
+
+    // Mouselook (GPU mode): horizontal delta turns the player in the game sim
+    // (via Doom's ev_mouse), vertical delta drives the renderer-only pitch.
+    if (g_gpuMode) {
+        vf2d md = Input::GetMouseDelta();
+        if (md.x != 0.0f) DG_MouseEvent(g_mouseButtons, (int)(md.x * 2.0f), 0);
+        g_pitch -= md.y * 0.003f;      // up = look up (screen-y grows downward)
+        const float lim = 1.30f;        // ~74°, clamp so we don't flip over
+        if (g_pitch >  lim) g_pitch =  lim;
+        if (g_pitch < -lim) g_pitch = -lim;
+        DG_SetPitch(g_pitch);
+    }
+
     DG_Tic();                          // advance the game one tic
     UploadScreen(DG_GetFramebuffer()); // stream the frame to the GPU
 
@@ -260,9 +280,12 @@ Lumi::Result AppEvent(void* /*appstate*/, SDL_Event* event)
     switch (event->type)
     {
         case SDL_EVENT_MOUSE_MOTION:
-            DG_MouseEvent(g_mouseButtons,
-                          (int)event->motion.xrel,
-                          (int)event->motion.yrel);
+            // In GPU mode, mouse motion is read via Input::GetMouseDelta in
+            // AppIterate (turn + pitch); avoid double-feeding here.
+            if (!g_gpuMode)
+                DG_MouseEvent(g_mouseButtons,
+                              (int)event->motion.xrel,
+                              (int)event->motion.yrel);
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
         case SDL_EVENT_MOUSE_BUTTON_UP:

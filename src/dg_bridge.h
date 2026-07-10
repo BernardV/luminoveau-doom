@@ -88,8 +88,11 @@ void DG_Sprite(int i, float* out8);
 const unsigned char* DG_SpriteTextureRGBA(int lump, int* w, int* h);
 
 // Current camera: pos3 = engine-space eye {x, y_up, z}; yaw in radians (Doom
-// angle, CCW from +X); pitch in radians (0 until mouselook, Fase 5).
+// angle, CCW from +X); pitch in radians (renderer-only mouselook).
 void DG_GetView(float* pos3, float* yawRad, float* pitchRad);
+
+// Set the renderer-only pitch (look up/down), radians, + = up. Doom has no pitch.
+void DG_SetPitch(float pitchRad);
 
 // ── Doom keycodes (mirror doomdef.h; kept here so C++ needn't include it) ───
 #define DG_KEY_RIGHTARROW 0xae
