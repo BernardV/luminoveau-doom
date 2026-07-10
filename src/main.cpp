@@ -211,10 +211,11 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
         PCMFormat{DG_AUDIO_RATE, 2}, &DG_MixAudio, nullptr);
     Audio::PlayPCMSound(pcm, AudioChannel::SFX);
 
-    // GPU renderer (see plan.md). Fase 0: opt-in scaffolding — a custom RenderPass
-    // that draws a triangle over the frame, proving the pass + GLSL pipeline work
-    // on every backend. Enable with DOOM_GPU=1.
-    if (getenv("DOOM_GPU")) {
+    // GPU renderer (see plan.md): on by default; set DOOM_GPU=0 to fall back to
+    // the pure software renderer.
+    const char* gpuEnv = getenv("DOOM_GPU");
+    bool gpuEnabled = !(gpuEnv && gpuEnv[0] == '0' && gpuEnv[1] == '\0');
+    if (gpuEnabled) {
         static DoomRenderPass doomPass;
         auto& gpu = Renderer::GetGpu();
         // Init at the primary framebuffer's size (desktop bounds), so the pass's
