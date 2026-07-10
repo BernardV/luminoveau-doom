@@ -1,4 +1,4 @@
-// Emacs style mode select   -*- C++ -*- 
+// Emacs style mode select   -*- C++ -*-
 //-----------------------------------------------------------------------------
 //
 // $Id:$
@@ -993,9 +993,9 @@ boolean PTR_ShootTraverse (intercept_t* in)
 
 	// Spawn bullet puffs.
 	P_SpawnPuff (x,y,z);
-	
+
 	// don't go any farther
-	return false;	
+	return false;
     }
     
     // shoot a thing
