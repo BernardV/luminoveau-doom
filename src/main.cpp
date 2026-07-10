@@ -201,6 +201,18 @@ static void EdgeKey(bool now, bool& prev, int doomKey)
 // Momentary tap (down+up) for stepped actions like weapon select.
 static void TapKey(int doomKey) { DG_KeyEvent(1, doomKey); DG_KeyEvent(0, doomKey); }
 
+// Mouse buttons via the engine Input API (polled SDL_GetMouseState — reliable),
+// not SDL_AppEvent, which drops events on macOS (same reason keyboard is polled).
+// Doom maps the bitmask natively: left=fire, right=strafe, middle=forward.
+static void PollMouseButtons()
+{
+    int b = 0;
+    if (Input::MouseButtonDown(SDL_BUTTON_LEFT))   b |= 1;
+    if (Input::MouseButtonDown(SDL_BUTTON_RIGHT))  b |= 2;
+    if (Input::MouseButtonDown(SDL_BUTTON_MIDDLE)) b |= 4;
+    if (b != g_mouseButtons) { g_mouseButtons = b; DG_MouseEvent(g_mouseButtons, 0, 0); }
+}
+
 static void PollGamepad()
 {
     int id = ActiveGamepadId();
@@ -336,6 +348,7 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
 Lumi::Result AppIterate(void* /*appstate*/)
 {
     PollKeyboard();                    // feed keyboard edges into Doom
+    PollMouseButtons();                // mouse buttons (fire = left)
     PollGamepad();                     // + gamepad, if one is connected
 
     // Mouselook (GPU mode): horizontal delta turns the player in the game sim
@@ -407,18 +420,8 @@ Lumi::Result AppEvent(void* /*appstate*/, SDL_Event* event)
                               (int)event->motion.xrel,
                               (int)event->motion.yrel);
             break;
-        case SDL_EVENT_MOUSE_BUTTON_DOWN:
-        case SDL_EVENT_MOUSE_BUTTON_UP:
-        {
-            int bit = 0;
-            if (event->button.button == SDL_BUTTON_LEFT)   bit = 1;
-            else if (event->button.button == SDL_BUTTON_RIGHT)  bit = 2;
-            else if (event->button.button == SDL_BUTTON_MIDDLE) bit = 4;
-            if (event->type == SDL_EVENT_MOUSE_BUTTON_DOWN) g_mouseButtons |= bit;
-            else                                            g_mouseButtons &= ~bit;
-            DG_MouseEvent(g_mouseButtons, 0, 0);
-            break;
-        }
+        // Mouse buttons are polled in PollMouseButtons() (SDL_AppEvent drops
+        // them on macOS, same as keyboard), so nothing to do here.
         default: break;
     }
     return Lumi::Result::Continue;
