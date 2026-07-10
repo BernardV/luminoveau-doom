@@ -796,7 +796,8 @@ mobj_t*		shootthing;
 
 // Height if not aiming up or down
 // ???: use slope for monsters?
-fixed_t		shootz;	
+fixed_t		shootz;
+sector_t*	shootsector;   // freelook: sector the hitscan is currently passing through
 
 int		la_damage;
 fixed_t		attackrange;
@@ -915,7 +916,30 @@ boolean PTR_ShootTraverse (intercept_t* in)
     if (in->isaline)
     {
 	li = in->d.line;
-	
+
+	// Freelook: before reaching this line, does the shot hit the current
+	// sector's ceiling (aiming up) or floor (aiming down)? Vanilla hitscan
+	// ignores planes; with steep view slopes we must test them so shots land
+	// on the ceiling/floor instead of the wall behind. Skip sky ceilings.
+	if (dg_freelook && shootsector)
+	{
+	    fixed_t linedist = FixedMul (attackrange, in->frac);
+	    fixed_t pd = -1;   // distance to a plane hit, if any
+	    if (aimslope > 0 && shootsector->ceilingpic != skyflatnum)
+		pd = FixedDiv (shootsector->ceilingheight - shootz, aimslope);
+	    else if (aimslope < 0)
+		pd = FixedDiv (shootsector->floorheight - shootz, aimslope);
+	    if (pd > 0 && pd < linedist)
+	    {
+		fixed_t pf = FixedDiv (pd, attackrange);
+		fixed_t px = trace.x + FixedMul (trace.dx, pf);
+		fixed_t py = trace.y + FixedMul (trace.dy, pf);
+		fixed_t pz = shootz + FixedMul (aimslope, pd);
+		P_SpawnPuff (px, py, pz);
+		return false;
+	    }
+	}
+
 	if (li->special)
 	    P_ShootSpecialLine (shootthing, li);
 
@@ -941,10 +965,13 @@ boolean PTR_ShootTraverse (intercept_t* in)
 		goto hitline;
 	}
 
-	// shot continues
+	// shot continues into the next sector — track it for plane hits.
+	if (shootsector)
+	    shootsector = (li->frontsector == shootsector) ? li->backsector
+	                                                    : li->frontsector;
 	return true;
-	
-	
+
+
 	// hit line
       hitline:
 	// position a bit closer
@@ -1078,7 +1105,8 @@ P_LineAttack
     shootz = t1->z + (t1->height>>1) + 8*FRACUNIT;
     attackrange = distance;
     aimslope = slope;
-		
+    shootsector = t1->subsector->sector;   // freelook plane hits: sector we start in
+
     P_PathTraverse ( t1->x, t1->y,
 		     x2, y2,
 		     PT_ADDLINES|PT_ADDTHINGS,
