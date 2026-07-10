@@ -290,7 +290,10 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
     const float hFov = glm::radians(90.0f);
     const float vFov = 2.0f * std::atan(std::tan(hFov * 0.5f) / (aspect > 0 ? aspect : 1.0f));
     glm::mat4 proj = glm::perspectiveLH_ZO(vFov, aspect, 1.0f, 20000.0f);
-    glm::mat4 mvp  = proj * view;
+    // Vertex uniform: MVP + camera eye (for distance-based lighting in the shader).
+    struct { glm::mat4 mvp; glm::vec4 eye; } vpu;
+    vpu.mvp = proj * view;
+    vpu.eye = glm::vec4(pos, 1.0f);
 
     // Build + upload sprite billboards BEFORE the render pass (uploads acquire
     // their own command buffers). Right vector is perpendicular to view fwd in XZ.
@@ -331,7 +334,7 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
     }
 
     gpu.bindGraphicsPipeline(rp, m_pipeline);
-    gpu.pushVertexUniformData(cmdBuffer, 0, &mvp, sizeof(mvp));
+    gpu.pushVertexUniformData(cmdBuffer, 0, &vpu, sizeof(vpu));
     GpuBufferBinding vb{ m_vertexBuffer, 0 };
     gpu.bindVertexBuffers(rp, 0, &vb, 1);
 
@@ -349,7 +352,7 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
     }
 
     // Sprites (billboards) after the world so they depth-test against it.
-    drawSprites(cmdBuffer, rp, &mvp);
+    drawSprites(cmdBuffer, rp, &vpu, sizeof(vpu));
 
     gpu.endRenderPass(rp);
 }
@@ -412,11 +415,12 @@ void DoomRenderPass::prepareSprites(float camRightX, float camRightZ) {
 }
 
 // Called INSIDE the render pass: draw only (no uploads).
-void DoomRenderPass::drawSprites(GpuCmdBufferHandle cmd, GpuRenderPassHandle rp, const void* mvpPtr) {
+void DoomRenderPass::drawSprites(GpuCmdBufferHandle cmd, GpuRenderPassHandle rp,
+                                 const void* vpu, uint32_t vpuSize) {
     if (!m_spriteDrawCount || !m_spriteVB) return;
     IGpu& gpu = Renderer::GetGpu();
     gpu.bindGraphicsPipeline(rp, m_spritePipeline);
-    gpu.pushVertexUniformData(cmd, 0, mvpPtr, sizeof(glm::mat4));
+    gpu.pushVertexUniformData(cmd, 0, vpu, vpuSize);
     GpuBufferBinding vb{ m_spriteVB, 0 };
     gpu.bindVertexBuffers(rp, 0, &vb, 1);
     for (uint32_t i = 0; i < m_spriteDrawCount; i++) {

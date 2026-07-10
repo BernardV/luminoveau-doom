@@ -47,6 +47,7 @@ private:
     // Build billboards + upload their textures/VB (call BEFORE beginRenderPass).
     void prepareSprites(float camRightX, float camRightZ);
     // Issue sprite draws (call INSIDE the render pass).
-    void drawSprites(GpuCmdBufferHandle cmd, GpuRenderPassHandle rp, const void* mvp);
+    void drawSprites(GpuCmdBufferHandle cmd, GpuRenderPassHandle rp,
+                     const void* vpu, uint32_t vpuSize);
     uint32_t m_spriteDrawCount = 0;   // sprites ready to draw this frame
 };
