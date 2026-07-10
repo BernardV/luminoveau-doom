@@ -374,13 +374,19 @@ void I_NetCmd(void) {}
 
 void DG_Init(int argc, char** argv)
 {
-    // DOOM_WARP=1 jumps straight into E1M1 (skips the menu) — handy for verifying
-    // the GPU world renderer. Synthesizes "-warp 1 1" onto the command line.
+    // DOOM_WARP jumps straight into a level (skips the menu) — handy for verifying
+    // the GPU world renderer. Value is "E M" (default "1 1"), e.g. DOOM_WARP="1 3".
     static char* warpv[8];
-    if (getenv("DOOM_WARP")) {
+    static char ep[8] = "1", mp[8] = "3";  // storage for parsed episode/map
+    const char* warp = getenv("DOOM_WARP");
+    if (warp && *warp) {
+        int e = 1, m = 1;
+        if (sscanf(warp, "%d %d", &e, &m) >= 1) {}
+        snprintf(ep, sizeof(ep), "%d", e);
+        snprintf(mp, sizeof(mp), "%d", m);
         int n = 0, i;
         for (i = 0; i < argc && n < 4; i++) warpv[n++] = argv[i];
-        warpv[n++] = "-warp"; warpv[n++] = "1"; warpv[n++] = "1";
+        warpv[n++] = "-warp"; warpv[n++] = ep; warpv[n++] = mp;
         myargc = n; myargv = warpv;
     } else {
         myargc = argc;
