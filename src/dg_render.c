@@ -159,20 +159,24 @@ static void emit_flat_poly(int subidx, const float* poly, int n) {
     float shade = sec->lightlevel / 255.0f; if (shade < 0.f) shade = 0.f; if (shade > 1.f) shade = 1.f;
     float fh = FX(sec->floorheight), ch = FX(sec->ceilingheight);
     int fp = sec->floorpic, cp = sec->ceilingpic;
+    // Group flats by their TRANSLATED (animated) flat index so animation shows:
+    // flattranslation[picnum] cycles per tic for animated flats (nukage, lava…).
+    int fflat = (fp != skyflatnum) ? flattranslation[fp] : -1;
+    int cflat = (cp != skyflatnum) ? flattranslation[cp] : -1;
 
     for (int k = 1; k + 1 < n; k++) {
         float x0 = poly[0], z0 = poly[1], x1 = poly[2*k], z1 = poly[2*k+1], x2 = poly[2*(k+1)], z2 = poly[2*(k+1)+1];
-        if (fp != skyflatnum) {
+        if (fflat >= 0) {
             float p0[6]={x0,fh,z0, x0/64.f,z0/64.f, shade};
             float p1[6]={x1,fh,z1, x1/64.f,z1/64.f, shade};
             float p2[6]={x2,fh,z2, x2/64.f,z2/64.f, shade};
-            add_tri(KIND_FLAT, fp, p0, p1, p2);
+            add_tri(KIND_FLAT, fflat, p0, p1, p2);
         }
-        if (cp != skyflatnum) {
+        if (cflat >= 0) {
             float p0[6]={x0,ch,z0, x0/64.f,z0/64.f, shade};
             float p1[6]={x1,ch,z1, x1/64.f,z1/64.f, shade};
             float p2[6]={x2,ch,z2, x2/64.f,z2/64.f, shade};
-            add_tri(KIND_FLAT, cp, p0, p1, p2);
+            add_tri(KIND_FLAT, cflat, p0, p1, p2);
         }
     }
 }
@@ -236,9 +240,12 @@ int DG_WorldReady(void) {
 
 const float* DG_WorldVertices(int* outFloatCount, unsigned* outVersion) {
     if (!DG_WorldReady()) { *outFloatCount = 0; if (outVersion) *outVersion = g_version; return NULL; }
-    if (segs != g_builtSegs || numsegs != g_builtNumSegs) build_world();
+    // Rebuild every frame: reads live sector floor/ceiling heights (doors, lifts,
+    // crushers move) and current texturetranslation/flattranslation (animated
+    // walls + flats). Geometry is small (~thousands of verts), so this is cheap.
+    build_world();
     *outFloatCount = g_vertCount * FLOATS_PER_VERT;
-    if (outVersion) *outVersion = g_version;
+    if (outVersion) *outVersion = g_version;   // build_world bumps g_version → host re-uploads
     return g_verts;
 }
 
@@ -274,23 +281,25 @@ const unsigned char* DG_WallTextureRGBA(int texid, int* w, int* h) {
     *w = tw; *h = th; return out;
 }
 
-// Flats are raw 64x64 palette-index lumps at firstflat + flattranslation[picnum].
-const unsigned char* DG_FlatTextureRGBA(int picnum, int* w, int* h) {
-    if (picnum < 0) { *w = *h = 0; return NULL; }
-    if (g_flatN <= picnum) {
-        int n = picnum + 1;
+// Flats are raw 64x64 palette-index lumps at firstflat + flatidx. flatidx is the
+// already-translated (animated) flat index used as the draw-group id, so each
+// animation frame is a distinct cache entry.
+const unsigned char* DG_FlatTextureRGBA(int flatidx, int* w, int* h) {
+    if (flatidx < 0) { *w = *h = 0; return NULL; }
+    if (g_flatN <= flatidx) {
+        int n = flatidx + 1;
         g_flatRGBA = (unsigned char**)realloc(g_flatRGBA, n * sizeof(unsigned char*));
         for (int k = g_flatN; k < n; k++) g_flatRGBA[k] = NULL;
         g_flatN = n;
     }
-    if (g_flatRGBA[picnum]) { *w = *h = 64; return g_flatRGBA[picnum]; }
-    const unsigned char* src = (const unsigned char*)W_CacheLumpNum(firstflat + flattranslation[picnum], PU_CACHE);
+    if (g_flatRGBA[flatidx]) { *w = *h = 64; return g_flatRGBA[flatidx]; }
+    const unsigned char* src = (const unsigned char*)W_CacheLumpNum(firstflat + flatidx, PU_CACHE);
     const unsigned char* pal = (const unsigned char*)W_CacheLumpName("PLAYPAL", PU_CACHE);
     unsigned char* out = (unsigned char*)malloc(64 * 64 * 4);
     for (int i = 0; i < 64 * 64; i++) {
         int idx = src[i]; out[i*4]=pal[idx*3]; out[i*4+1]=pal[idx*3+1]; out[i*4+2]=pal[idx*3+2]; out[i*4+3]=255;
     }
-    g_flatRGBA[picnum] = out; *w = *h = 64; return out;
+    g_flatRGBA[flatidx] = out; *w = *h = 64; return out;
 }
 
 // Current sky texture id (a composite texture id, usable with DG_WallTextureRGBA).
