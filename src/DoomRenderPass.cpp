@@ -546,19 +546,23 @@ void DoomRenderPass::prepareOverlay(float ox, float oy, float boxW, float boxH,
         ny = 1.0f - by / H * 2.0f;
     };
 
-    // Crosshair: a small white "+" at NDC (0,0). The overlay is drawn through the
-    // 3D viewport, whose centre (NDC origin) is exactly the view direction — i.e.
-    // where a level shot goes — so this always sits on the aim point regardless of
-    // letterbox/aspect. (Earlier bug: computed in full-window pixels, which the
-    // 3D viewport then remapped, placing it ~80px too high.)
+    // Crosshair: a gap cross (four ticks around a centre hole) at NDC (0,0). The
+    // overlay is drawn through the 3D viewport, whose centre (NDC origin) is
+    // exactly the view direction — i.e. where a level shot goes — so it always
+    // sits on the aim point regardless of letterbox/aspect.
     {
-        const float armX = 0.012f, armY = armX * (boxW / viewH);  // square on screen
-        const float thX = armX * 0.18f, thY = armY * 0.18f;
-        struct { float x0,y0,x1,y1; } bars[2] = {
-            { -armX, -thY,  armX,  thY },   // horizontal
-            { -thX,  -armY, thX,   armY },  // vertical
+        const float ar   = boxW / viewH;         // aspect: keep ticks square on screen
+        const float gap  = 0.006f;                // half-size of the centre hole (x)
+        const float len  = 0.013f;                // tick length (x)
+        const float thX  = 0.0022f, thY = thX*ar; // tick thickness
+        const float gapY = gap*ar,  lenY = len*ar;
+        struct { float x0,y0,x1,y1; } bars[4] = {
+            {  gap,   -thY,  gap+len,  thY },   // right
+            { -gap-len,-thY, -gap,     thY },   // left
+            { -thX,    gapY,  thX,  gapY+lenY },// top
+            { -thX,   -gapY-lenY, thX, -gapY }, // bottom
         };
-        for (int b = 0; b < 2; b++) {
+        for (int b = 0; b < 4; b++) {
             float x0=bars[b].x0, y0=bars[b].y0, x1=bars[b].x1, y1=bars[b].y1;
             g_ovlFirst.push_back((int)g_ovlVerts.size()); g_ovlLump.push_back(-1);
             g_ovlVerts.push_back({x0,y0, 0,0}); g_ovlVerts.push_back({x1,y0, 0,0});
