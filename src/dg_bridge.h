@@ -63,14 +63,17 @@ int DG_WorldReady(void);
 // only when it changes. NULL/0 when no level.
 const float* DG_WorldVertices(int* outFloatCount, unsigned* outVersion);
 
-// Draw groups: contiguous vertex ranges sharing one wall texture. Draw each
-// group with DG_WallTextureRGBA(texid) bound.
-int  DG_WallGroupCount(void);
-void DG_WallGroup(int i, int* texid, int* firstVert, int* vertCount);
+// Draw groups: contiguous vertex ranges sharing one (kind, texid). kind: 0=wall
+// (texture via DG_WallTextureRGBA), 1=flat floor/ceiling (via DG_FlatTextureRGBA).
+enum { DG_KIND_WALL = 0, DG_KIND_FLAT = 1 };
+int  DG_DrawGroupCount(void);
+void DG_DrawGroup(int i, int* kind, int* texid, int* firstVert, int* vertCount);
 
-// Wall texture as RGBA8 (converted from Doom's palette-indexed texture via
-// PLAYPAL), cached. NULL/0 for an invalid id. w*h*4 bytes, row-major.
+// Wall texture (composite) as RGBA8 via PLAYPAL, cached. NULL/0 if invalid.
 const unsigned char* DG_WallTextureRGBA(int texid, int* w, int* h);
+
+// Flat (floor/ceiling) as RGBA8 via PLAYPAL, cached. Always 64x64. NULL if invalid.
+const unsigned char* DG_FlatTextureRGBA(int picnum, int* w, int* h);
 
 // Current camera: pos3 = engine-space eye {x, y_up, z}; yaw in radians (Doom
 // angle, CCW from +X); pitch in radians (0 until mouselook, Fase 5).

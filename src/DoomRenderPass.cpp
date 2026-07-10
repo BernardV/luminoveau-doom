@@ -18,18 +18,21 @@ extern "C" {
 // Vertex from dg_render.c: pos(vec3) + uv(vec2) + shade(float) = 24 bytes.
 struct WorldVertex { float x, y, z, u, v, shade; };
 
-// Wall textures uploaded to the GPU, cached by Doom texture id.
+// Wall + flat textures uploaded to the GPU, cached by id (separate namespaces).
 static std::unordered_map<int, GpuTextureHandle> g_wallTextures;
+static std::unordered_map<int, GpuTextureHandle> g_flatTextures;
 static GpuSamplerHandle g_wallSampler = 0;
 
-// Upload an RGBA wall texture to the GPU with raw IGpu calls (same pattern
-// main.cpp uses for the Doom screen). Must be called outside a render pass.
-static GpuTextureHandle wallTexture(int texid) {
-    auto it = g_wallTextures.find(texid);
-    if (it != g_wallTextures.end()) return it->second;
+// Upload an RGBA texture with raw IGpu calls (same pattern main.cpp uses for the
+// Doom screen). Must be called OUTSIDE a render pass. kind selects wall vs flat.
+static GpuTextureHandle uploadTexture(int kind, int id) {
+    auto& cache = (kind == DG_KIND_FLAT) ? g_flatTextures : g_wallTextures;
+    auto it = cache.find(id);
+    if (it != cache.end()) return it->second;
 
     int w = 0, h = 0;
-    const unsigned char* rgba = DG_WallTextureRGBA(texid, &w, &h);
+    const unsigned char* rgba = (kind == DG_KIND_FLAT)
+        ? DG_FlatTextureRGBA(id, &w, &h) : DG_WallTextureRGBA(id, &w, &h);
     GpuTextureHandle tex = 0;
     if (rgba && w > 0 && h > 0) {
         IGpu& gpu = Renderer::GetGpu();
@@ -58,7 +61,7 @@ static GpuTextureHandle wallTexture(int texid) {
             }
         }
     }
-    g_wallTextures[texid] = tex;   // cache even null, to avoid retrying
+    cache[id] = tex;   // cache even null, to avoid retrying
     return tex;
 }
 
@@ -159,11 +162,11 @@ void DoomRenderPass::ensureGeometry() {
     // Pre-upload every group's wall texture NOW, before any render pass begins:
     // texture upload acquires+submits its own command buffer, illegal inside an
     // active render pass.
-    int groups = DG_WallGroupCount();
+    int groups = DG_DrawGroupCount();
     for (int g = 0; g < groups; g++) {
-        int texid, first, count;
-        DG_WallGroup(g, &texid, &first, &count);
-        wallTexture(texid);
+        int kind, texid, first, count;
+        DG_DrawGroup(g, &kind, &texid, &first, &count);
+        uploadTexture(kind, texid);
     }
 }
 
@@ -213,13 +216,13 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
     GpuBufferBinding vb{ m_vertexBuffer, 0 };
     gpu.bindVertexBuffers(rp, 0, &vb, 1);
 
-    // One draw per wall-texture group.
-    int groups = DG_WallGroupCount();
+    // One draw per (kind, texture) group — walls and flats share the pipeline.
+    int groups = DG_DrawGroupCount();
     for (int g = 0; g < groups; g++) {
-        int texid, first, count;
-        DG_WallGroup(g, &texid, &first, &count);
+        int kind, texid, first, count;
+        DG_DrawGroup(g, &kind, &texid, &first, &count);
         if (count <= 0) continue;
-        GpuTextureHandle tex = wallTexture(texid);
+        GpuTextureHandle tex = uploadTexture(kind, texid);
         if (!tex) continue;
         GpuTextureSamplerBinding tsb{ tex, g_wallSampler };
         gpu.bindFragmentSamplers(rp, 0, &tsb, 1);
