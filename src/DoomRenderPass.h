@@ -9,8 +9,8 @@
 #include "gpu/types.h"
 
 // Toggle the wall/flat texture filter: Modern (smooth: linear+mips+aniso) ↔
-// Authentic+ (crisp: nearest). Free function so the host can flip it from input.
-void DoomRenderPass_ToggleFilter();
+// Authentic+ (crisp: nearest). Returns 1 if now Modern (smooth), 0 if Authentic+.
+int DoomRenderPass_ToggleFilter();
 
 class DoomRenderPass : public RenderPass {
 public:

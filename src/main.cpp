@@ -159,12 +159,14 @@ static void PollKeyboard()
     for (int sc = 0; sc < n; ++sc) {
         if (ks[sc] == prev[sc]) continue;
         prev[sc] = ks[sc];
-        // Host hotkey: ` toggles the texture filter (not forwarded to Doom).
-        // In GPU mode: Authentic+ (crisp) ↔ Modern (smooth). Else: software blit.
-        if (sc == SDL_SCANCODE_GRAVE) {
+        // Host hotkey: F5 (and ` as alt) toggles the texture filter — NOT forwarded
+        // to Doom. GPU mode: Authentic+ (crisp) ↔ Modern (smooth). Else: software blit.
+        if (sc == SDL_SCANCODE_F5 || sc == SDL_SCANCODE_GRAVE) {
             if (ks[sc]) {
-                if (g_gpuMode) DoomRenderPass_ToggleFilter();
-                else { g_linearFilter = !g_linearFilter; ApplyFilter(); }
+                if (g_gpuMode) {
+                    int smooth = DoomRenderPass_ToggleFilter();
+                    LOG_INFO("Texture filter: {}", smooth ? "Modern (smooth)" : "Authentic+ (crisp)");
+                } else { g_linearFilter = !g_linearFilter; ApplyFilter(); }
             }
             continue;
         }

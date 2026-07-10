@@ -36,7 +36,7 @@ static GpuSamplerHandle wallSampler() {
     if (!init) { init = 1; if (getenv("DOOM_CRISP")) g_wallSmooth = false; }  // start mode
     return g_wallSmooth ? g_wallSamplerSmooth : g_wallSamplerCrisp;
 }
-void DoomRenderPass_ToggleFilter() { g_wallSmooth = !g_wallSmooth; }
+int DoomRenderPass_ToggleFilter() { g_wallSmooth = !g_wallSmooth; return g_wallSmooth ? 1 : 0; }
 
 // Box-filter one RGBA mip level (w×h) down to (w/2 × h/2), averaging 2×2 blocks.
 static void downsampleRGBA(const unsigned char* src, int w, int h,
