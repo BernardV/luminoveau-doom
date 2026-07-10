@@ -106,6 +106,15 @@ void DG_SetPitch(float pitchRad);
 // shaders as a localized point light at the eye with distance falloff.
 float DG_FlashLevel(void);
 
+// ── HUD message (drawn by the GPU overlay, over the 3D) ─────────────────────
+// Current top-of-screen message text ("" if none). Advance width for a space
+// or non-drawable char when laying out DG_FontGlyph glyphs.
+#define DG_FONT_SPACE 4
+const char* DG_HudMessage(void);
+// Font glyph for a char: 1 + fills *lump/*w/*h (RGBA via DG_SpriteTextureRGBA),
+// or 0 for space/non-printable. Doom's HUD font, drawn at 320x200 scale.
+int DG_FontGlyph(int ch, int* lump, int* w, int* h);
+
 // ── Doom keycodes (mirror doomdef.h; kept here so C++ needn't include it) ───
 #define DG_KEY_RIGHTARROW 0xae
 #define DG_KEY_LEFTARROW  0xac

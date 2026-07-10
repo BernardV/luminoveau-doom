@@ -102,6 +102,11 @@ static boolean		message_nottobefuckedwith;
 static hu_stext_t	w_message;
 static int		message_counter;
 
+// Mirror of the current top-of-screen HUD message, for the GPU overlay to draw
+// on top of the 3D (the software copy in screens[0] is hidden under the GPU view).
+// Empty string when no message is showing. Read via DG_HudMessage().
+char			dg_hud_message[128] = "";
+
 extern int		showMessages;
 extern boolean		automapactive;
 
@@ -513,6 +518,7 @@ void HU_Ticker(void)
     {
 	message_on = false;
 	message_nottobefuckedwith = false;
+	dg_hud_message[0] = '\0';   // message expired: clear the GPU-overlay mirror
     }
 
     if (showMessages || message_dontfuckwithme)
@@ -523,6 +529,8 @@ void HU_Ticker(void)
 	    || (plr->message && message_dontfuckwithme))
 	{
 	    HUlib_addMessageToSText(&w_message, 0, plr->message);
+	    strncpy(dg_hud_message, plr->message, sizeof(dg_hud_message) - 1);
+	    dg_hud_message[sizeof(dg_hud_message) - 1] = '\0';
 	    plr->message = 0;
 	    message_on = true;
 	    message_counter = HU_MSGTIMEOUT;

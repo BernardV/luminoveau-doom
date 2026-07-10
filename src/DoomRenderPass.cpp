@@ -594,6 +594,30 @@ void DoomRenderPass::prepareOverlay(float ox, float oy, float boxW, float boxH,
         g_ovlVerts.push_back({nx1,ny1, uR,1.f});
         g_ovlVerts.push_back({nx0,ny1, uL,1.f});
     }
+
+    // HUD message (pickups, level name, cheat confirmations): Doom draws it into
+    // the top of screens[0], which the GPU 3D hides — so re-draw it here with the
+    // same font, at the same top-left origin (HU_MSGX/Y = 0,0 in 320x200 space).
+    if (const char* msg = DG_HudMessage()) {
+        float px = 0.0f;                     // pen position in Doom 320x200 pixels
+        for (const char* s = msg; *s; ++s) {
+            if (*s == '\n') { px = 0.0f; continue; }
+            int lump, gw, gh;
+            if (!DG_FontGlyph((unsigned char)*s, &lump, &gw, &gh)) { px += DG_FONT_SPACE; continue; }
+            if (!spriteTexture(lump)) { px += gw; continue; }
+            float nx0,ny0,nx1,ny1;
+            toNdc(px, 0.0f, nx0, ny0);
+            toNdc(px + gw, gh, nx1, ny1);
+            g_ovlFirst.push_back((int)g_ovlVerts.size()); g_ovlLump.push_back(lump);
+            g_ovlVerts.push_back({nx0,ny0, 0.f,0.f});
+            g_ovlVerts.push_back({nx1,ny0, 1.f,0.f});
+            g_ovlVerts.push_back({nx1,ny1, 1.f,1.f});
+            g_ovlVerts.push_back({nx0,ny0, 0.f,0.f});
+            g_ovlVerts.push_back({nx1,ny1, 1.f,1.f});
+            g_ovlVerts.push_back({nx0,ny1, 0.f,1.f});
+            px += gw;
+        }
+    }
     if (g_ovlVerts.empty()) return;
 
     uint32_t bytes = (uint32_t)(g_ovlVerts.size() * sizeof(OV));

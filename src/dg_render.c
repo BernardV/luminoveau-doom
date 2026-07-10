@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <ctype.h>
+#include <stdio.h>
 
 #include "doomdef.h"
 #include "doomstat.h"     // gamestate, skyflatnum, players, consoleplayer
@@ -22,6 +24,7 @@
 #include "w_wad.h"
 #include "z_zone.h"
 #include "m_fixed.h"
+#include "m_swap.h"       // SHORT (patch dimensions)
 #include "tables.h"       // ANG45, angle_t
 
 #include "dg_bridge.h"
@@ -43,6 +46,30 @@ float DG_FlashLevel(void) {
     if (extralight <= 0) return 0.0f;
     float f = extralight * 0.35f;
     return f > 1.0f ? 1.0f : f;
+}
+
+// ── HUD message + font (drawn by the GPU overlay, on top of the 3D) ──────────
+// The software HUD message lives in screens[0]'s top region, which the GPU 3D
+// draws over, so we mirror it out and re-draw it with Doom's own font.
+extern char dg_hud_message[];        // hu_stuff.c
+extern patch_t* hu_font[];           // hu_stuff.c: glyphs '!'..'_' at [c-'!']
+
+const char* DG_HudMessage(void) { return dg_hud_message; }
+
+// Font glyph for a character. Returns 1 and fills *lump/*w/*h for a drawable
+// glyph (fetch RGBA via DG_SpriteTextureRGBA(lump)); 0 for space/non-printable
+// (caller advances by DG_FONT_SPACE). Mirrors HUlib_drawTextLine.
+int DG_FontGlyph(int ch, int* lump, int* w, int* h) {
+    int c = toupper(ch);
+    if (c < '!' || c > '_') return 0;
+    patch_t* p = hu_font[c - '!'];
+    if (!p) return 0;
+    char name[16];
+    sprintf(name, "STCFN%.3d", c);
+    *lump = W_GetNumForName(name);
+    *w = SHORT(p->width);
+    *h = SHORT(p->height);
+    return 1;
 }
 
 #define FX(a) ((float)(a) / (float)FRACUNIT)
