@@ -185,7 +185,21 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
     glm::vec3 fwd(std::cos(yaw) * std::cos(pitch), std::sin(pitch), std::sin(yaw) * std::cos(pitch));
     glm::mat4 view = glm::lookAtLH(pos, pos + fwd, glm::vec3(0, 1, 0));
 
-    const float aspect = (float)Window::GetPhysicalWidth() / (float)Window::GetPhysicalHeight();
+    // Match the software view region so the GPU 3D lines up with (and covers)
+    // Doom's own 4:3-letterboxed view — main.cpp blits the 320x200 image into a
+    // 4:3 box centred in the window, with the 32px status bar in its bottom
+    // 32/200. The 3D view is the top 168/200 of that box.
+    const float W = (float)Window::GetPhysicalWidth();
+    const float H = (float)Window::GetPhysicalHeight();
+    const float target = 4.0f / 3.0f;
+    float boxW, boxH;
+    if (W / H > target) { boxH = H; boxW = H * target; }
+    else                { boxW = W; boxH = W / target; }
+    const float ox = (W - boxW) * 0.5f;
+    const float oy = (H - boxH) * 0.5f;
+    const float viewH = boxH * (168.0f / 200.0f);   // 3D view height (excl. status bar)
+
+    const float aspect = boxW / viewH;
     const float hFov = glm::radians(90.0f);
     const float vFov = 2.0f * std::atan(std::tan(hFov * 0.5f) / (aspect > 0 ? aspect : 1.0f));
     glm::mat4 proj = glm::perspectiveLH_ZO(vFov, aspect, 1.0f, 20000.0f);
@@ -208,8 +222,7 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
 
     GpuRenderPassHandle rp = gpu.beginRenderPass(cmdBuffer, &ct, 1, &dt);
     render_pass = rp;
-    gpu.setViewport(rp, 0.0f, 0.0f,
-                    (float)Window::GetPhysicalWidth(), (float)Window::GetPhysicalHeight(), 0.0f, 1.0f);
+    gpu.setViewport(rp, ox, oy, boxW, viewH, 0.0f, 1.0f);
 
     gpu.bindGraphicsPipeline(rp, m_pipeline);
     gpu.pushVertexUniformData(cmdBuffer, 0, &mvp, sizeof(mvp));
