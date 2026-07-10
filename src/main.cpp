@@ -143,6 +143,7 @@ static int SdlKeyToDoom(SDL_Keycode kc)
 static int   g_mouseButtons = 0;
 static bool  g_gpuMode = false;   // GPU renderer active (enables mouselook)
 static float g_pitch   = 0.0f;    // look up/down angle, radians
+static bool  g_touch   = false;   // on-screen touch controls active (mobile/web)
 
 // Keyboard is polled from SDL_GetKeyboardState each frame (edge-detected) rather
 // than relying on SDL_EVENT_KEY_* callbacks, which proved unreliable on macOS
@@ -290,6 +291,67 @@ static void PollGamepad()
     eNext = next; ePrev = prev;
 }
 
+// ── Touch (on-screen virtual controls) ──────────────────────────────────────
+// The engine's VirtualControls (a left joystick + up to 4 right buttons) is fed
+// by auto-routed SDL finger events. Enabled only when a touch device is present
+// (or DOOM_TOUCH=1 to test on desktop); otherwise none of this runs.
+
+static bool TouchAvailable()
+{
+    if (getenv("DOOM_TOUCH")) return true;
+    int count = 0;
+    SDL_TouchID* devs = SDL_GetTouchDevices(&count);
+    if (devs) SDL_free(devs);
+    return count > 0;
+}
+
+static void PollTouch()
+{
+    if (!g_touch) return;
+    auto& vc = Input::GetVirtualControls();
+
+    static bool tFwd=false, tBack=false, tStrL=false, tStrR=false;
+    static bool tFire=false, tUse=false, tEsc=false;
+    static bool tMUp=false, tMDn=false, tEnter=false;
+    static bool bPrev[4] = {};
+
+    const bool ui = DG_UIActive();
+    vf2d dir = vc.GetJoystickDirection();     // screen space: +x right, +y down
+    float mag = vc.GetJoystickMagnitude();
+    const float T = 0.4f;
+    bool up = mag > T && dir.y < -0.5f, down = mag > T && dir.y > 0.5f;
+    bool left = mag > T && dir.x < -0.5f, right = mag > T && dir.x > 0.5f;
+
+    // Button semantics: 0=fire, 1=use, 2=weapon-next, 3=menu. Edge via JustPressed.
+    bool b0 = vc.IsButtonPressed(0), b1 = vc.IsButtonPressed(1);
+    bool b2 = vc.IsButtonPressed(2), b3 = vc.IsButtonPressed(3);
+
+    if (ui) {
+        EdgeKey(up,   tMUp,  DG_KEY_UPARROW);
+        EdgeKey(down, tMDn,  DG_KEY_DOWNARROW);
+        EdgeKey(b0,   tEnter, DG_KEY_ENTER);
+        EdgeKey(b3,   tEsc,  DG_KEY_ESCAPE);
+        EdgeKey(false, tFwd, DG_KEY_UPARROW);   EdgeKey(false, tBack, DG_KEY_DOWNARROW);
+        EdgeKey(false, tStrL, ','); EdgeKey(false, tStrR, '.'); EdgeKey(false, tFire, DG_KEY_RCTRL);
+        for (int i = 0; i < 4; i++) bPrev[i] = false;
+        return;
+    }
+    EdgeKey(false, tMUp, DG_KEY_UPARROW); EdgeKey(false, tMDn, DG_KEY_DOWNARROW);
+    EdgeKey(false, tEnter, DG_KEY_ENTER);
+
+    // Move with the stick; strafe is handled by A/D-style side keys.
+    EdgeKey(up,    tFwd,  DG_KEY_UPARROW);
+    EdgeKey(down,  tBack, DG_KEY_DOWNARROW);
+    EdgeKey(left,  tStrL, ',');
+    EdgeKey(right, tStrR, '.');
+
+    EdgeKey(b0, tFire, DG_KEY_RCTRL);
+    EdgeKey(b1, tUse,  ' ');
+    EdgeKey(b3, tEsc,  DG_KEY_ESCAPE);
+    if (b2 && !bPrev[2]) { static int w = 1; w = w % 7 + 1; TapKey('0' + w); }
+    bPrev[0]=b0; bPrev[1]=b1; bPrev[2]=b2; bPrev[3]=b3;
+}
+
 // ── App callbacks ───────────────────────────────────────────────────────────
 
 Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
@@ -345,6 +407,17 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
     // Relative mouse mode (for mouselook) is toggled per-frame in AppIterate based
     // on whether a menu/UI is up, so it's released when the user needs the cursor.
 
+    // On-screen touch controls: only when a touch device is present (mobile/web),
+    // or forced with DOOM_TOUCH=1. Left joystick + 4 buttons (fire/use/weapon/menu).
+    if (TouchAvailable()) {
+        auto& vc = Input::GetVirtualControls();
+        vc.SetButtonCount(4);
+        vc.SetJoystickMode(VirtualControls::JoystickMode::RELATIVE);
+        vc.SetEnabled(true);
+        g_touch = true;
+        LOG_INFO("Touch controls enabled");
+    }
+
     return Lumi::Result::Continue;
 }
 
@@ -353,6 +426,7 @@ Lumi::Result AppIterate(void* /*appstate*/)
     PollKeyboard();                    // feed keyboard edges into Doom
     PollMouseButtons();                // mouse buttons (fire = left)
     PollGamepad();                     // + gamepad, if one is connected
+    PollTouch();                       // + on-screen touch controls, if enabled
 
     // Mouselook (GPU mode): horizontal delta turns the player in the game sim
     // (via Doom's ev_mouse), vertical delta drives the renderer-only pitch.
@@ -405,6 +479,14 @@ Lumi::Result AppIterate(void* /*appstate*/)
     const float y = (H - dstH) * 0.5f;
 
     Draw::Texture(g_screen, {x, y}, {dstW, dstH});
+
+    // On-screen touch controls. VirtualControls renders AND hit-tests in the
+    // engine's logical coordinate space (both use Window::GetWidth/Height), so
+    // they stay mutually consistent. On a HiDPI desktop where this app otherwise
+    // draws in physical pixels they appear in the logical (top-left) quadrant —
+    // a cosmetic quirk of the DOOM_TOUCH desktop test; on real touch targets
+    // (mobile/web, logical == physical) they anchor to the corners as intended.
+    if (g_touch) Input::GetVirtualControls().Render();
 
     Window::EndFrame();
     return Lumi::Result::Continue;
