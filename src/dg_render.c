@@ -34,6 +34,11 @@ extern int*  texturewidthmask;
 extern int   firstflat;
 // textureheight, texturetranslation, flattranslation, firstflat: r_state.h.
 
+// Doom's per-frame view brightness bump (gun flash, item pickup, light-amp
+// goggles), in 16-level light units → ~16 lightlevel per unit. Set in build_world.
+extern int extralight;
+static float g_shadeBoost = 0.0f;
+
 #define FX(a) ((float)(a) / (float)FRACUNIT)
 #define TEX_W(t) (texturewidthmask[t] + 1)
 #define TEX_H(t) (textureheight[t] >> FRACBITS)
@@ -102,7 +107,7 @@ static void build_walls(void) {
         if (!fs || !sd || !ld) continue;
         float x1 = FX(seg->v1->x), z1 = FX(seg->v1->y);
         float x2 = FX(seg->v2->x), z2 = FX(seg->v2->y);
-        float shade = fs->lightlevel / 255.0f; if (shade < 0.f) shade = 0.f; if (shade > 1.f) shade = 1.f;
+        float shade = fs->lightlevel / 255.0f + g_shadeBoost; if (shade < 0.f) shade = 0.f; if (shade > 1.f) shade = 1.f;
         float ffloor = FX(fs->floorheight), fceil = FX(fs->ceilingheight);
         float uoff = FX(seg->offset) + FX(sd->textureoffset);
         float roff = FX(sd->rowoffset);
@@ -163,7 +168,7 @@ static void emit_flat_poly(int subidx, const float* poly, int n) {
     subsector_t* sub = &subsectors[subidx];
     sector_t* sec = sub->sector;
     if (!sec) return;
-    float shade = sec->lightlevel / 255.0f; if (shade < 0.f) shade = 0.f; if (shade > 1.f) shade = 1.f;
+    float shade = sec->lightlevel / 255.0f + g_shadeBoost; if (shade < 0.f) shade = 0.f; if (shade > 1.f) shade = 1.f;
     float fh = FX(sec->floorheight), ch = FX(sec->ceilingheight);
     int fp = sec->floorpic, cp = sec->ceilingpic;
     // Group flats by their TRANSLATED (animated) flat index so animation shows:
@@ -215,6 +220,7 @@ static int cmp_tri(const void* a, const void* b) {
 }
 
 static void build_world(void) {
+    g_shadeBoost = extralight * (16.0f / 255.0f);
     g_triCount = 0;
     build_walls();
     build_flats();
@@ -381,7 +387,7 @@ static void build_sprites(void) {
         s->top = FX(mo->z) + stop;                 // top of sprite above feet
         (void)soff;
         s->lump = lump; s->flip = flip;
-        float shade = mo->subsector->sector->lightlevel / 255.0f;
+        float shade = mo->subsector->sector->lightlevel / 255.0f + g_shadeBoost;
         if (mo->frame & FF_FULLBRIGHT) shade = 1.0f;
         if (shade < 0.f) shade = 0.f; if (shade > 1.f) shade = 1.f;
         s->shade = shade;
