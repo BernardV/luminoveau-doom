@@ -132,6 +132,16 @@ void DoomRenderPass::ensureGeometry() {
 
     m_vertexCount = (uint32_t)(floatCount / 6);
     m_geomVersion = version;
+
+    // Pre-upload every group's wall texture NOW, before any render pass begins.
+    // Texture upload (LoadFromPixelData) acquires+submits its own command buffer,
+    // which is illegal inside an active render pass — so it must happen here.
+    int groups = DG_WallGroupCount();
+    for (int g = 0; g < groups; g++) {
+        int texid, first, count;
+        DG_WallGroup(g, &texid, &first, &count);
+        wallTexture(texid);
+    }
 }
 
 void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
