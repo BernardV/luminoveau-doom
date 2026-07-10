@@ -531,26 +531,24 @@ void DoomRenderPass::prepareOverlay(float ox, float oy, float boxW, float boxH,
         ny = 1.0f - by / H * 2.0f;
     };
 
-    // Crosshair: a small white "+" at the centre of the 3D view (lump -1 = white
-    // pixel). Gives an exact aim reference for freelook.
+    // Crosshair: a small white "+" at NDC (0,0). The overlay is drawn through the
+    // 3D viewport, whose centre (NDC origin) is exactly the view direction — i.e.
+    // where a level shot goes — so this always sits on the aim point regardless of
+    // letterbox/aspect. (Earlier bug: computed in full-window pixels, which the
+    // 3D viewport then remapped, placing it ~80px too high.)
     {
-        float cx = ox + boxW * 0.5f, cy = oy + viewH * 0.5f;
-        auto px2ndc = [&](float px, float py, float& nx, float& ny) {
-            nx = px / W * 2.0f - 1.0f; ny = 1.0f - py / H * 2.0f;
-        };
-        const float armPx = 10.0f, thickPx = 2.0f;  // physical pixels
+        const float armX = 0.012f, armY = armX * (boxW / viewH);  // square on screen
+        const float thX = armX * 0.18f, thY = armY * 0.18f;
         struct { float x0,y0,x1,y1; } bars[2] = {
-            { cx-armPx, cy-thickPx, cx+armPx, cy+thickPx },   // horizontal
-            { cx-thickPx, cy-armPx, cx+thickPx, cy+armPx },   // vertical
+            { -armX, -thY,  armX,  thY },   // horizontal
+            { -thX,  -armY, thX,   armY },  // vertical
         };
         for (int b = 0; b < 2; b++) {
-            float n0x,n0y,n1x,n1y;
-            px2ndc(bars[b].x0, bars[b].y0, n0x, n0y);
-            px2ndc(bars[b].x1, bars[b].y1, n1x, n1y);
+            float x0=bars[b].x0, y0=bars[b].y0, x1=bars[b].x1, y1=bars[b].y1;
             g_ovlFirst.push_back((int)g_ovlVerts.size()); g_ovlLump.push_back(-1);
-            g_ovlVerts.push_back({n0x,n0y, 0,0}); g_ovlVerts.push_back({n1x,n0y, 0,0});
-            g_ovlVerts.push_back({n1x,n1y, 0,0}); g_ovlVerts.push_back({n0x,n0y, 0,0});
-            g_ovlVerts.push_back({n1x,n1y, 0,0}); g_ovlVerts.push_back({n0x,n1y, 0,0});
+            g_ovlVerts.push_back({x0,y0, 0,0}); g_ovlVerts.push_back({x1,y0, 0,0});
+            g_ovlVerts.push_back({x1,y1, 0,0}); g_ovlVerts.push_back({x0,y0, 0,0});
+            g_ovlVerts.push_back({x1,y1, 0,0}); g_ovlVerts.push_back({x0,y1, 0,0});
         }
     }
 

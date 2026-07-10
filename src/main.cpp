@@ -236,6 +236,10 @@ Lumi::Result AppIterate(void* /*appstate*/)
     // (via Doom's ev_mouse), vertical delta drives the renderer-only pitch.
     if (g_gpuMode) {
         vf2d md = Input::GetMouseDelta();
+        // Discard the first few frames: entering relative-mouse mode emits a
+        // spurious initial delta that would jerk the view/pitch on startup.
+        static int settle = 0;
+        if (settle < 6) { settle++; md = {0.0f, 0.0f}; }
         if (md.x != 0.0f) DG_MouseEvent(g_mouseButtons, (int)(md.x * 2.0f), 0);
         g_pitch -= md.y * 0.003f;      // up = look up (screen-y grows downward)
         const float lim = 1.30f;        // ~74°, clamp so we don't flip over
