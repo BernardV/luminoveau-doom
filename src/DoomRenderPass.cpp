@@ -1,7 +1,6 @@
 #include "DoomRenderPass.h"
 
 #include <cstring>
-#include <string>
 #include <unordered_map>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -23,6 +22,8 @@ struct WorldVertex { float x, y, z, u, v, shade; };
 static std::unordered_map<int, GpuTextureHandle> g_wallTextures;
 static GpuSamplerHandle g_wallSampler = 0;
 
+// Upload an RGBA wall texture to the GPU with raw IGpu calls (same pattern
+// main.cpp uses for the Doom screen). Must be called outside a render pass.
 static GpuTextureHandle wallTexture(int texid) {
     auto it = g_wallTextures.find(texid);
     if (it != g_wallTextures.end()) return it->second;
@@ -31,9 +32,31 @@ static GpuTextureHandle wallTexture(int texid) {
     const unsigned char* rgba = DG_WallTextureRGBA(texid, &w, &h);
     GpuTextureHandle tex = 0;
     if (rgba && w > 0 && h > 0) {
-        TextureAsset ta = AssetHandler::LoadFromPixelData(
-            {(float)w, (float)h}, (void*)rgba, "walltex_" + std::to_string(texid));
-        tex = ta.gpuTexture;
+        IGpu& gpu = Renderer::GetGpu();
+        GpuTextureCreateInfo ci{};
+        ci.width = (uint32_t)w; ci.height = (uint32_t)h;
+        ci.depthOrLayers = 1; ci.numLevels = 1;
+        ci.format = GpuTextureFormat::R8G8B8A8_Unorm;
+        ci.sampleCount = GpuSampleCount::x1;
+        ci.usage = GpuTextureUsage::Sampler | GpuTextureUsage::Transfer;
+        tex = gpu.createTexture(ci);
+        if (tex) {
+            const uint32_t bytes = (uint32_t)w * h * 4u;
+            GpuTransferBufferHandle tb = gpu.createTransferBuffer({ bytes, GpuTransferUsage::Upload });
+            void* ptr = tb ? gpu.mapTransferBuffer(tb, false) : nullptr;
+            if (ptr) {
+                std::memcpy(ptr, rgba, bytes);
+                gpu.unmapTransferBuffer(tb);
+                GpuCmdBufferHandle cmd = gpu.acquireCommandBuffer();
+                GpuTransferBufferRegion src{}; src.transferBuffer = tb;
+                GpuTextureRegion dst{}; dst.texture = tex; dst.width = (uint32_t)w; dst.height = (uint32_t)h; dst.depth = 1;
+                gpu.uploadToTexture(cmd, src, dst, false);
+                gpu.submitCommandBuffer(cmd);
+                gpu.releaseTransferBuffer(tb);
+            } else {
+                gpu.releaseTexture(tex); tex = 0;
+            }
+        }
     }
     g_wallTextures[texid] = tex;   // cache even null, to avoid retrying
     return tex;
@@ -133,9 +156,9 @@ void DoomRenderPass::ensureGeometry() {
     m_vertexCount = (uint32_t)(floatCount / 6);
     m_geomVersion = version;
 
-    // Pre-upload every group's wall texture NOW, before any render pass begins.
-    // Texture upload (LoadFromPixelData) acquires+submits its own command buffer,
-    // which is illegal inside an active render pass — so it must happen here.
+    // Pre-upload every group's wall texture NOW, before any render pass begins:
+    // texture upload acquires+submits its own command buffer, illegal inside an
+    // active render pass.
     int groups = DG_WallGroupCount();
     for (int g = 0; g < groups; g++) {
         int texid, first, count;
