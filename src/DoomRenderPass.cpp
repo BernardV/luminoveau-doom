@@ -27,8 +27,31 @@ static std::unordered_map<int, GpuTextureHandle> g_wallTextures;
 static std::unordered_map<int, GpuTextureHandle> g_flatTextures;
 static GpuSamplerHandle g_wallSampler = 0;
 
-// Upload an RGBA texture with raw IGpu calls (same pattern main.cpp uses for the
-// Doom screen). Must be called OUTSIDE a render pass. kind selects wall vs flat.
+// Box-filter one RGBA mip level (w×h) down to (w/2 × h/2), averaging 2×2 blocks.
+static void downsampleRGBA(const unsigned char* src, int w, int h,
+                           std::vector<unsigned char>& dst, int& dw, int& dh) {
+    dw = w > 1 ? w / 2 : 1;
+    dh = h > 1 ? h / 2 : 1;
+    dst.resize((size_t)dw * dh * 4);
+    for (int y = 0; y < dh; y++) {
+        for (int x = 0; x < dw; x++) {
+            int sx = x * 2, sy = y * 2;
+            int sx1 = (sx + 1 < w) ? sx + 1 : sx;
+            int sy1 = (sy + 1 < h) ? sy + 1 : sy;
+            const unsigned char* a = &src[((size_t)sy  * w + sx ) * 4];
+            const unsigned char* b = &src[((size_t)sy  * w + sx1) * 4];
+            const unsigned char* c = &src[((size_t)sy1 * w + sx ) * 4];
+            const unsigned char* d = &src[((size_t)sy1 * w + sx1) * 4];
+            unsigned char* o = &dst[((size_t)y * dw + x) * 4];
+            for (int k = 0; k < 4; k++) o[k] = (a[k] + b[k] + c[k] + d[k] + 2) / 4;
+        }
+    }
+}
+
+// Upload an RGBA texture with a full mip chain (generated on the CPU) so the
+// wall/flat sampler can do trilinear + anisotropic filtering — kills the distant
+// shimmer/aliasing the fixed-res nearest sampler produced. Must be called OUTSIDE
+// a render pass. kind selects wall vs flat.
 static GpuTextureHandle uploadTexture(int kind, int id) {
     auto& cache = (kind == DG_KIND_FLAT) ? g_flatTextures : g_wallTextures;
     auto it = cache.find(id);
@@ -40,29 +63,44 @@ static GpuTextureHandle uploadTexture(int kind, int id) {
     GpuTextureHandle tex = 0;
     if (rgba && w > 0 && h > 0) {
         IGpu& gpu = Renderer::GetGpu();
+        // Full mip chain: floor(log2(max(w,h))) + 1 levels.
+        uint32_t levels = 1; { int m = w > h ? w : h; while (m > 1) { m >>= 1; levels++; } }
+
         GpuTextureCreateInfo ci{};
         ci.width = (uint32_t)w; ci.height = (uint32_t)h;
-        ci.depthOrLayers = 1; ci.numLevels = 1;
+        ci.depthOrLayers = 1; ci.numLevels = levels;
         ci.format = GpuTextureFormat::R8G8B8A8_Unorm;
         ci.sampleCount = GpuSampleCount::x1;
         ci.usage = GpuTextureUsage::Sampler | GpuTextureUsage::Transfer;
         tex = gpu.createTexture(ci);
         if (tex) {
-            const uint32_t bytes = (uint32_t)w * h * 4u;
-            GpuTransferBufferHandle tb = gpu.createTransferBuffer({ bytes, GpuTransferUsage::Upload });
-            void* ptr = tb ? gpu.mapTransferBuffer(tb, false) : nullptr;
-            if (ptr) {
-                std::memcpy(ptr, rgba, bytes);
+            // Upload level 0, then each generated level.
+            const unsigned char* lvlData = rgba;
+            std::vector<unsigned char> cur, prev;
+            int lw = w, lh = h;
+            bool ok = true;
+            for (uint32_t lvl = 0; lvl < levels && ok; lvl++) {
+                if (lvl > 0) {
+                    // Downsample the previous level (lw,lh hold its dims; updated to the new dims).
+                    downsampleRGBA(lvlData, lw, lh, cur, lw, lh);
+                    prev.swap(cur);
+                    lvlData = prev.data();
+                }
+                uint32_t bytes = (uint32_t)lw * lh * 4u;
+                GpuTransferBufferHandle tb = gpu.createTransferBuffer({ bytes, GpuTransferUsage::Upload });
+                void* ptr = tb ? gpu.mapTransferBuffer(tb, false) : nullptr;
+                if (!ptr) { if (tb) gpu.releaseTransferBuffer(tb); ok = false; break; }
+                std::memcpy(ptr, lvlData, bytes);
                 gpu.unmapTransferBuffer(tb);
                 GpuCmdBufferHandle cmd = gpu.acquireCommandBuffer();
                 GpuTransferBufferRegion src{}; src.transferBuffer = tb;
-                GpuTextureRegion dst{}; dst.texture = tex; dst.width = (uint32_t)w; dst.height = (uint32_t)h; dst.depth = 1;
+                GpuTextureRegion dst{}; dst.texture = tex; dst.mipLevel = lvl;
+                dst.width = (uint32_t)lw; dst.height = (uint32_t)lh; dst.depth = 1;
                 gpu.uploadToTexture(cmd, src, dst, false);
                 gpu.submitCommandBuffer(cmd);
                 gpu.releaseTransferBuffer(tb);
-            } else {
-                gpu.releaseTexture(tex); tex = 0;
             }
+            if (!ok) { gpu.releaseTexture(tex); tex = 0; }
         }
     }
     cache[id] = tex;   // cache even null, to avoid retrying
@@ -93,12 +131,18 @@ bool DoomRenderPass::init(GpuTextureFormat swapchainFormat,
     createDepth(surfaceWidth, surfaceHeight);
     if (!m_depth_texture.gpuTexture) { LOG_ERROR("DoomRenderPass: depth creation failed"); return false; }
 
-    // Repeat + nearest sampler: walls tile, and nearest keeps the crisp Doom look.
+    // Walls/flats tile (Repeat) with trilinear + anisotropic filtering over the
+    // CPU-generated mip chain: smooths minification and kills distant shimmer
+    // (the "Modern" look). Magnification stays Linear (mag Nearest would re-alias
+    // up close). LOD bias slightly negative to keep textures from going too soft.
     GpuSamplerCreateInfo ss{};
-    ss.minFilter = GpuFilter::Nearest; ss.magFilter = GpuFilter::Nearest; ss.mipFilter = GpuFilter::Nearest;
+    ss.minFilter = GpuFilter::Linear; ss.magFilter = GpuFilter::Linear; ss.mipFilter = GpuFilter::Linear;
     ss.addressU = GpuSamplerAddressMode::Repeat;
     ss.addressV = GpuSamplerAddressMode::Repeat;
     ss.addressW = GpuSamplerAddressMode::Repeat;
+    ss.maxAniso = 16.0f;
+    ss.mipLodBias = -0.5f;
+    ss.maxLod = 16.0f;
     g_wallSampler = gpu.createSampler(ss);
 
     Shader vs = AssetHandler::GetShader("assets/shaders/doom_world.vert");
