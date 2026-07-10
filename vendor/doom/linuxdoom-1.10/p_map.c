@@ -1103,6 +1103,11 @@ P_LineAttack
     x2 = t1->x + (distance>>FRACBITS)*finecosine[angle];
     y2 = t1->y + (distance>>FRACBITS)*finesine[angle];
     shootz = t1->z + (t1->height>>1) + 8*FRACUNIT;
+    // Freelook: fire from the actual view (eye) height so the shot ray coincides
+    // with the crosshair (screen centre). Vanilla shootz is the lower weapon
+    // height, which makes freelook shots land off-target vertically.
+    if (dg_freelook && t1->player)
+	shootz = t1->player->viewz;
     attackrange = distance;
     aimslope = slope;
     shootsector = t1->subsector->sector;   // freelook plane hits: sector we start in

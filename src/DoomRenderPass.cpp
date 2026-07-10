@@ -325,7 +325,7 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
     // Build + upload sprite billboards + weapon overlay BEFORE the render pass
     // (uploads acquire their own command buffers). Right vector ⟂ view fwd in XZ.
     prepareSprites(-std::sin(yaw), std::cos(yaw));
-    prepareOverlay(ox, oy, boxW, boxH, W, H);
+    prepareOverlay(ox, oy, boxW, boxH, viewH, W, H);
 
     const bool shouldResolve = (renderTargetResolve != 0);
     GpuColorTargetInfo ct{};
@@ -472,7 +472,8 @@ std::vector<int> g_ovlFirst;
 
 // Build the player weapon sprite(s) as screen-space NDC quads mapped into the
 // 4:3 box (320x200 virtual → box), and upload. Call BEFORE beginRenderPass.
-void DoomRenderPass::prepareOverlay(float ox, float oy, float boxW, float boxH, float W, float H) {
+void DoomRenderPass::prepareOverlay(float ox, float oy, float boxW, float boxH,
+                                    float viewH, float W, float H) {
     m_overlayDrawCount = 0;
     if (!m_overlayPipeline) return;
     IGpu& gpu = Renderer::GetGpu();
@@ -485,6 +486,29 @@ void DoomRenderPass::prepareOverlay(float ox, float oy, float boxW, float boxH, 
         nx = bx / W * 2.0f - 1.0f;
         ny = 1.0f - by / H * 2.0f;
     };
+
+    // Crosshair: a small white "+" at the centre of the 3D view (lump -1 = white
+    // pixel). Gives an exact aim reference for freelook.
+    {
+        float cx = ox + boxW * 0.5f, cy = oy + viewH * 0.5f;
+        auto px2ndc = [&](float px, float py, float& nx, float& ny) {
+            nx = px / W * 2.0f - 1.0f; ny = 1.0f - py / H * 2.0f;
+        };
+        const float armPx = 10.0f, thickPx = 2.0f;  // physical pixels
+        struct { float x0,y0,x1,y1; } bars[2] = {
+            { cx-armPx, cy-thickPx, cx+armPx, cy+thickPx },   // horizontal
+            { cx-thickPx, cy-armPx, cx+thickPx, cy+armPx },   // vertical
+        };
+        for (int b = 0; b < 2; b++) {
+            float n0x,n0y,n1x,n1y;
+            px2ndc(bars[b].x0, bars[b].y0, n0x, n0y);
+            px2ndc(bars[b].x1, bars[b].y1, n1x, n1y);
+            g_ovlFirst.push_back((int)g_ovlVerts.size()); g_ovlLump.push_back(-1);
+            g_ovlVerts.push_back({n0x,n0y, 0,0}); g_ovlVerts.push_back({n1x,n0y, 0,0});
+            g_ovlVerts.push_back({n1x,n1y, 0,0}); g_ovlVerts.push_back({n0x,n0y, 0,0});
+            g_ovlVerts.push_back({n1x,n1y, 0,0}); g_ovlVerts.push_back({n0x,n1y, 0,0});
+        }
+    }
 
     for (int idx = NUMPSPRITES_LOCAL - 1; idx >= 0; idx--) {   // flash over weapon? draw weapon then flash
         float o[7];
@@ -533,7 +557,9 @@ void DoomRenderPass::drawOverlay(GpuRenderPassHandle rp) {
     GpuBufferBinding vb{ m_overlayVB, 0 };
     gpu.bindVertexBuffers(rp, 0, &vb, 1);
     for (uint32_t i = 0; i < m_overlayDrawCount; i++) {
-        GpuTextureHandle tex = spriteTexture(g_ovlLump[i]);
+        GpuTextureHandle tex = (g_ovlLump[i] == -1)
+            ? Renderer::WhitePixel().gpuTexture      // crosshair
+            : spriteTexture(g_ovlLump[i]);
         if (!tex) continue;
         GpuTextureSamplerBinding tsb{ tex, m_spriteSampler };
         gpu.bindFragmentSamplers(rp, 0, &tsb, 1);

@@ -55,7 +55,8 @@ private:
     GpuGraphicsPipelineHandle m_overlayPipeline = 0;
     GpuBufferHandle m_overlayVB = 0;
     uint32_t        m_overlayVBBytes = 0;
-    void prepareOverlay(float ox, float oy, float boxW, float boxH, float W, float H);
+    void prepareOverlay(float ox, float oy, float boxW, float boxH,
+                        float viewH, float W, float H);
     void drawOverlay(GpuRenderPassHandle rp);
     uint32_t m_overlayDrawCount = 0;
 };
