@@ -25,7 +25,18 @@ static constexpr int NUMPSPRITES_LOCAL = 2;
 // Wall + flat textures uploaded to the GPU, cached by id (separate namespaces).
 static std::unordered_map<int, GpuTextureHandle> g_wallTextures;
 static std::unordered_map<int, GpuTextureHandle> g_flatTextures;
-static GpuSamplerHandle g_wallSampler = 0;
+
+// Two wall/flat samplers: Modern (linear + mips + aniso, smooth) and Authentic+
+// (nearest, crisp original pixels). Toggled at runtime via DoomRenderPass_ToggleFilter.
+static GpuSamplerHandle g_wallSamplerSmooth = 0;
+static GpuSamplerHandle g_wallSamplerCrisp  = 0;
+static bool             g_wallSmooth = true;
+static GpuSamplerHandle wallSampler() {
+    static int init = 0;
+    if (!init) { init = 1; if (getenv("DOOM_CRISP")) g_wallSmooth = false; }  // start mode
+    return g_wallSmooth ? g_wallSamplerSmooth : g_wallSamplerCrisp;
+}
+void DoomRenderPass_ToggleFilter() { g_wallSmooth = !g_wallSmooth; }
 
 // Box-filter one RGBA mip level (w×h) down to (w/2 × h/2), averaging 2×2 blocks.
 static void downsampleRGBA(const unsigned char* src, int w, int h,
@@ -131,19 +142,20 @@ bool DoomRenderPass::init(GpuTextureFormat swapchainFormat,
     createDepth(surfaceWidth, surfaceHeight);
     if (!m_depth_texture.gpuTexture) { LOG_ERROR("DoomRenderPass: depth creation failed"); return false; }
 
-    // Walls/flats tile (Repeat) with trilinear + anisotropic filtering over the
-    // CPU-generated mip chain: smooths minification and kills distant shimmer
-    // (the "Modern" look). Magnification stays Linear (mag Nearest would re-alias
-    // up close). LOD bias slightly negative to keep textures from going too soft.
+    // Modern: trilinear + anisotropic over the CPU mip chain — smooths
+    // minification, kills distant shimmer.
     GpuSamplerCreateInfo ss{};
     ss.minFilter = GpuFilter::Linear; ss.magFilter = GpuFilter::Linear; ss.mipFilter = GpuFilter::Linear;
-    ss.addressU = GpuSamplerAddressMode::Repeat;
-    ss.addressV = GpuSamplerAddressMode::Repeat;
-    ss.addressW = GpuSamplerAddressMode::Repeat;
-    ss.maxAniso = 16.0f;
-    ss.mipLodBias = -0.5f;
-    ss.maxLod = 16.0f;
-    g_wallSampler = gpu.createSampler(ss);
+    ss.addressU = ss.addressV = ss.addressW = GpuSamplerAddressMode::Repeat;
+    ss.maxAniso = 16.0f; ss.mipLodBias = -0.5f; ss.maxLod = 16.0f;
+    g_wallSamplerSmooth = gpu.createSampler(ss);
+    // Authentic+: nearest, crisp original Doom pixels (still mip-selected to avoid
+    // extreme sparkle, but point-sampled within a level).
+    GpuSamplerCreateInfo sc{};
+    sc.minFilter = GpuFilter::Nearest; sc.magFilter = GpuFilter::Nearest; sc.mipFilter = GpuFilter::Nearest;
+    sc.addressU = sc.addressV = sc.addressW = GpuSamplerAddressMode::Repeat;
+    sc.maxLod = 16.0f;
+    g_wallSamplerCrisp = gpu.createSampler(sc);
 
     Shader vs = AssetHandler::GetShader("assets/shaders/doom_world.vert");
     Shader fs = AssetHandler::GetShader("assets/shaders/doom_world.frag");
@@ -402,7 +414,7 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
         sp.vScale   = 1.0f;                          // maps view-y 0..1 into sky v (tune later)
         sp.vBias    = 0.0f;
         gpu.bindGraphicsPipeline(rp, m_skyPipeline);
-        GpuTextureSamplerBinding sky{ skyTex, g_wallSampler };
+        GpuTextureSamplerBinding sky{ skyTex, g_wallSamplerSmooth };
         gpu.bindFragmentSamplers(rp, 0, &sky, 1);
         gpu.pushFragmentUniformData(cmdBuffer, 0, &sp, sizeof(sp));
         gpu.drawPrimitives(rp, 3, 1, 0, 0);
@@ -421,7 +433,7 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
         if (count <= 0) continue;
         GpuTextureHandle tex = uploadTexture(kind, texid);
         if (!tex) continue;
-        GpuTextureSamplerBinding tsb{ tex, g_wallSampler };
+        GpuTextureSamplerBinding tsb{ tex, wallSampler() };
         gpu.bindFragmentSamplers(rp, 0, &tsb, 1);
         gpu.drawPrimitives(rp, (uint32_t)count, 1, (uint32_t)first, 0);
     }

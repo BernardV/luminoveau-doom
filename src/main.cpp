@@ -159,9 +159,13 @@ static void PollKeyboard()
     for (int sc = 0; sc < n; ++sc) {
         if (ks[sc] == prev[sc]) continue;
         prev[sc] = ks[sc];
-        // Host hotkey: ` toggles the upscale filter (not forwarded to Doom).
+        // Host hotkey: ` toggles the texture filter (not forwarded to Doom).
+        // In GPU mode: Authentic+ (crisp) ↔ Modern (smooth). Else: software blit.
         if (sc == SDL_SCANCODE_GRAVE) {
-            if (ks[sc]) { g_linearFilter = !g_linearFilter; ApplyFilter(); }
+            if (ks[sc]) {
+                if (g_gpuMode) DoomRenderPass_ToggleFilter();
+                else { g_linearFilter = !g_linearFilter; ApplyFilter(); }
+            }
             continue;
         }
         SDL_Keycode kc = SDL_GetKeyFromScancode((SDL_Scancode)sc, SDL_GetModState(), false);
