@@ -176,6 +176,105 @@ static void PollKeyboard()
     }
 }
 
+// ── Gamepad ───────────────────────────────────────────────────────────────
+// Driven entirely through Lumi's engine Input API (Input::Get*), keyed off a
+// gamepad the engine has detected. If none is connected, PollGamepad() returns
+// immediately and no gamepad code runs. All actions are synthesized into Doom's
+// existing key/mouse event stream, so Doom's own binding logic handles them.
+
+// Runtime detection: the engine tracks connect/disconnect (SDL_EVENT_GAMEPAD_*),
+// so we just look for a GAMEPAD device. Returns its id, or -1 if none.
+static int ActiveGamepadId()
+{
+    for (InputDevice* d : Input::GetAllInputs())
+        if (d && d->getType() == InputType::GAMEPAD) return d->getGamepadID();
+    return -1;
+}
+
+// Emit a Doom key edge only when the pressed state changes.
+static void EdgeKey(bool now, bool& prev, int doomKey)
+{
+    if (now == prev) return;
+    prev = now;
+    DG_KeyEvent(now ? 1 : 0, doomKey);
+}
+// Momentary tap (down+up) for stepped actions like weapon select.
+static void TapKey(int doomKey) { DG_KeyEvent(1, doomKey); DG_KeyEvent(0, doomKey); }
+
+static void PollGamepad()
+{
+    int id = ActiveGamepadId();
+    if (id < 0) return;                       // no pad → nothing runs
+
+    using GA = SDL_GamepadAxis;
+    using GB = SDL_GamepadButton;
+    auto axis = [&](GA a){ return Input::GetGamepadAxisMovement(id, a); };
+    auto btn  = [&](GB b){ return Input::GamepadButtonDown(id, (int)b); };
+
+    // Persistent edge state across frames.
+    static bool eFwd=false, eBack=false, eStrL=false, eStrR=false;
+    static bool eFire=false, eUse=false, eRun=false, eEsc=false;
+    static bool eMUp=false, eMDn=false, eMLt=false, eMRt=false, eEnter=false;
+    static bool eNext=false, ePrev=false;
+    static int  weapon = 1;
+
+    const bool ui = DG_UIActive();
+    const float lx = axis(SDL_GAMEPAD_AXIS_LEFTX),  ly = axis(SDL_GAMEPAD_AXIS_LEFTY);
+    const float rx = axis(SDL_GAMEPAD_AXIS_RIGHTX), ry = axis(SDL_GAMEPAD_AXIS_RIGHTY);
+    const float lt = axis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
+    const float rt = axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+    const float T = 0.30f;                    // move threshold (past the deadzone)
+
+    if (ui) {
+        // Menu navigation: dpad or left stick step through items; A confirms, B/Start exit.
+        EdgeKey(ly < -T || btn(SDL_GAMEPAD_BUTTON_DPAD_UP),    eMUp,  DG_KEY_UPARROW);
+        EdgeKey(ly >  T || btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN),  eMDn,  DG_KEY_DOWNARROW);
+        EdgeKey(lx < -T || btn(SDL_GAMEPAD_BUTTON_DPAD_LEFT),  eMLt,  DG_KEY_LEFTARROW);
+        EdgeKey(lx >  T || btn(SDL_GAMEPAD_BUTTON_DPAD_RIGHT), eMRt,  DG_KEY_RIGHTARROW);
+        EdgeKey(btn(SDL_GAMEPAD_BUTTON_SOUTH),  eEnter, DG_KEY_ENTER);
+        EdgeKey(btn(SDL_GAMEPAD_BUTTON_EAST) || btn(SDL_GAMEPAD_BUTTON_START), eEsc, DG_KEY_ESCAPE);
+        // Clear any held movement so the player doesn't drift while paused.
+        EdgeKey(false, eFwd,  DG_KEY_UPARROW);
+        EdgeKey(false, eBack, DG_KEY_DOWNARROW);
+        EdgeKey(false, eStrL, ',');  EdgeKey(false, eStrR, '.');
+        EdgeKey(false, eFire, DG_KEY_RCTRL);
+        return;
+    }
+    // Release the menu-nav edges when leaving a menu.
+    EdgeKey(false, eMUp, DG_KEY_UPARROW);  EdgeKey(false, eMDn, DG_KEY_DOWNARROW);
+    EdgeKey(false, eMLt, DG_KEY_LEFTARROW); EdgeKey(false, eMRt, DG_KEY_RIGHTARROW);
+    EdgeKey(false, eEnter, DG_KEY_ENTER);
+
+    // Movement: left stick or dpad. Doom moves via arrow keys + strafe keys (',' '.').
+    EdgeKey(ly < -T || btn(SDL_GAMEPAD_BUTTON_DPAD_UP),    eFwd,  DG_KEY_UPARROW);
+    EdgeKey(ly >  T || btn(SDL_GAMEPAD_BUTTON_DPAD_DOWN),  eBack, DG_KEY_DOWNARROW);
+    EdgeKey(lx < -T, eStrL, ',');
+    EdgeKey(lx >  T, eStrR, '.');
+
+    // Look: right stick → analog turn (Doom's mouse-turn) + renderer pitch.
+    if (rx != 0.0f) DG_MouseEvent(g_mouseButtons, (int)(rx * 16.0f), 0);
+    if (ry != 0.0f && g_gpuMode) {
+        g_pitch -= ry * 0.04f;
+        const float lim = 1.30f;
+        if (g_pitch >  lim) g_pitch =  lim;
+        if (g_pitch < -lim) g_pitch = -lim;
+        DG_SetPitch(g_pitch);
+    }
+
+    // Actions: RT fire, A use, LT run, B/Start menu.
+    EdgeKey(rt > T,                         eFire, DG_KEY_RCTRL);
+    EdgeKey(btn(SDL_GAMEPAD_BUTTON_SOUTH),  eUse,  ' ');
+    EdgeKey(lt > T,                         eRun,  DG_KEY_RSHIFT);
+    EdgeKey(btn(SDL_GAMEPAD_BUTTON_EAST) || btn(SDL_GAMEPAD_BUTTON_START), eEsc, DG_KEY_ESCAPE);
+
+    // Weapon cycle on shoulders → tap number keys 1..7.
+    bool next = btn(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
+    bool prev = btn(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
+    if (next && !eNext) { weapon = weapon % 7 + 1;       TapKey('0' + weapon); }
+    if (prev && !ePrev) { weapon = (weapon + 5) % 7 + 1; TapKey('0' + weapon); }
+    eNext = next; ePrev = prev;
+}
+
 // ── App callbacks ───────────────────────────────────────────────────────────
 
 Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
@@ -237,6 +336,7 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
 Lumi::Result AppIterate(void* /*appstate*/)
 {
     PollKeyboard();                    // feed keyboard edges into Doom
+    PollGamepad();                     // + gamepad, if one is connected
 
     // Mouselook (GPU mode): horizontal delta turns the player in the game sim
     // (via Doom's ev_mouse), vertical delta drives the renderer-only pitch.
