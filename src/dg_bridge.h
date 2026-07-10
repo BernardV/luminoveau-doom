@@ -57,11 +57,20 @@ void DG_MusicMix(float* output, unsigned int frameCount, unsigned int channels);
 // True once a level is loaded and its geometry is available.
 int DG_WorldReady(void);
 
-// Returns the wall geometry as interleaved floats: {x,y,z,shade} per vertex,
-// triangles (3 verts each), in engine space. *outFloatCount = total floats
-// (verts*4). *outVersion bumps whenever the geometry is rebuilt (level change),
-// so the host can re-upload only when it changes. NULL/0 when no level.
+// Wall geometry as interleaved floats: {x,y,z, u,v, shade} per vertex, triangles
+// (3 verts each), engine space, grouped by texture. *outFloatCount = total floats
+// (verts*6). *outVersion bumps on rebuild (level change) so the host re-uploads
+// only when it changes. NULL/0 when no level.
 const float* DG_WorldVertices(int* outFloatCount, unsigned* outVersion);
+
+// Draw groups: contiguous vertex ranges sharing one wall texture. Draw each
+// group with DG_WallTextureRGBA(texid) bound.
+int  DG_WallGroupCount(void);
+void DG_WallGroup(int i, int* texid, int* firstVert, int* vertCount);
+
+// Wall texture as RGBA8 (converted from Doom's palette-indexed texture via
+// PLAYPAL), cached. NULL/0 for an invalid id. w*h*4 bytes, row-major.
+const unsigned char* DG_WallTextureRGBA(int texid, int* w, int* h);
 
 // Current camera: pos3 = engine-space eye {x, y_up, z}; yaw in radians (Doom
 // angle, CCW from +X); pitch in radians (0 until mouselook, Fase 5).
