@@ -390,6 +390,36 @@ void DG_Sprite(int i, float* out8) {
     out8[4]=s->top; out8[5]=(float)s->lump; out8[6]=(float)s->flip; out8[7]=s->shade;
 }
 
+// Player weapon sprite (psprite) placement in Doom's 320x200 view space.
+// idx: 0 = weapon, 1 = muzzle flash. Returns 1 if active; fills out6 =
+// {lump, xLeft, yTop, w, h} in 320x200 pixels + flip (out6[5]). fullbright→out6[6].
+int DG_WeaponSprite(int idx, float* out7) {
+    for (int k=0;k<7;k++) out7[k]=0;
+    player_t* pl = &players[consoleplayer];
+    if (idx < 0 || idx >= NUMPSPRITES) return 0;
+    pspdef_t* psp = &pl->psprites[idx];
+    if (!psp->state) return 0;
+    int sprite = psp->state->sprite;
+    if (sprite < 0 || sprite >= numsprites) return 0;
+    spritedef_t* sd = &sprites[sprite];
+    int frame = psp->state->frame & FF_FRAMEMASK;
+    if (frame >= sd->numframes) return 0;
+    spriteframe_t* sf = &sd->spriteframes[frame];
+    int rel = sf->lump[0];
+    int flip = sf->flip[0];
+    int lump = firstspritelump + rel;
+    const patch_t* p = (const patch_t*)W_CacheLumpNum(lump, PU_CACHE);
+    // Doom: x_left = (sx>>16) - leftoffset; y_top = (sy>>16) - topoffset (200-space).
+    out7[0] = (float)lump;
+    out7[1] = (float)(psp->sx >> FRACBITS) - (float)(spriteoffset[rel] >> FRACBITS);
+    out7[2] = (float)(psp->sy >> FRACBITS) - (float)(spritetopoffset[rel] >> FRACBITS);
+    out7[3] = (float)p->width;
+    out7[4] = (float)p->height;
+    out7[5] = (float)flip;
+    out7[6] = (psp->state->frame & FF_FULLBRIGHT) ? 1.0f : 0.0f;
+    return 1;
+}
+
 // Decode a sprite patch (posts) to RGBA with alpha (0 in transparent gaps).
 static unsigned char** g_sprRGBA = NULL; static int* g_sprW = NULL; static int* g_sprH = NULL; static int g_sprN = 0;
 

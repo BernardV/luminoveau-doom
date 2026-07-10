@@ -19,6 +19,9 @@ extern "C" {
 // Vertex from dg_render.c: pos(vec3) + uv(vec2) + shade(float) = 24 bytes.
 struct WorldVertex { float x, y, z, u, v, shade; };
 
+// Doom psprites: weapon + muzzle flash (mirrors NUMPSPRITES in p_pspr.h).
+static constexpr int NUMPSPRITES_LOCAL = 2;
+
 // Wall + flat textures uploaded to the GPU, cached by id (separate namespaces).
 static std::unordered_map<int, GpuTextureHandle> g_wallTextures;
 static std::unordered_map<int, GpuTextureHandle> g_flatTextures;
@@ -178,6 +181,30 @@ bool DoomRenderPass::init(GpuTextureFormat swapchainFormat,
         m_spriteSampler = gpu.createSampler(ss2);
     }
 
+    // Overlay pipeline: screen-space (NDC positions), alpha-tested, NO depth so it
+    // always sits on top of the 3D view. Layout: vec2 ndc + vec2 uv (16 bytes).
+    Shader ov = AssetHandler::GetShader("assets/shaders/doom_overlay.vert");
+    Shader of = AssetHandler::GetShader("assets/shaders/doom_overlay.frag");
+    if (ov.gpuShader && of.gpuShader) {
+        static GpuVertexAttribute oa[2] = {
+            { .location = 0, .binding = 0, .format = GpuVertexElementFormat::Float2, .offset = 0 },
+            { .location = 1, .binding = 0, .format = GpuVertexElementFormat::Float2, .offset = 8 },
+        };
+        static GpuVertexBinding ob = { .binding = 0, .stride = 16, .instanceStepping = false };
+        GpuGraphicsPipelineCreateInfo op{};
+        op.vertexShader = ov.gpuShader; op.fragmentShader = of.gpuShader;
+        op.attributes = oa; op.attributeCount = 2; op.bindings = &ob; op.bindingCount = 1;
+        op.fillMode = GpuFillMode::Fill; op.cullMode = GpuCullMode::None;
+        op.colorTargetFormat = swapchainFormat;
+        // Must match the pass's depth attachment. Vertices output z=0 (near) so
+        // they pass the LESS test vs any world depth → weapon always on top.
+        op.hasDepthTarget = true;
+        op.depthTargetFormat = GpuTextureFormat::D32_Float;
+        op.sampleCount = m_sampleCount;
+        m_overlayPipeline = gpu.createGraphicsPipeline(op);
+    }
+    if (!m_overlayPipeline) LOG_WARNING("DoomRenderPass: overlay pipeline unavailable (no weapon sprite)");
+
     if (logInit) LOG_INFO("DoomRenderPass: initialized ({})", passname.c_str());
     return true;
 }
@@ -295,9 +322,10 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
     vpu.mvp = proj * view;
     vpu.eye = glm::vec4(pos, 1.0f);
 
-    // Build + upload sprite billboards BEFORE the render pass (uploads acquire
-    // their own command buffers). Right vector is perpendicular to view fwd in XZ.
+    // Build + upload sprite billboards + weapon overlay BEFORE the render pass
+    // (uploads acquire their own command buffers). Right vector ⟂ view fwd in XZ.
     prepareSprites(-std::sin(yaw), std::cos(yaw));
+    prepareOverlay(ox, oy, boxW, boxH, W, H);
 
     const bool shouldResolve = (renderTargetResolve != 0);
     GpuColorTargetInfo ct{};
@@ -353,6 +381,9 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
 
     // Sprites (billboards) after the world so they depth-test against it.
     drawSprites(cmdBuffer, rp, &vpu, sizeof(vpu));
+
+    // Player weapon sprite last, as a screen-space overlay on top of everything.
+    drawOverlay(rp);
 
     gpu.endRenderPass(rp);
 }
@@ -429,6 +460,84 @@ void DoomRenderPass::drawSprites(GpuCmdBufferHandle cmd, GpuRenderPassHandle rp,
         GpuTextureSamplerBinding tsb{ tex, m_spriteSampler };
         gpu.bindFragmentSamplers(rp, 0, &tsb, 1);
         gpu.drawPrimitives(rp, 6, 1, (uint32_t)g_spriteFirst[i], 0);
+    }
+}
+
+namespace {
+struct OV { float x,y,u,v; };
+std::vector<OV>  g_ovlVerts;
+std::vector<int> g_ovlLump;
+std::vector<int> g_ovlFirst;
+}
+
+// Build the player weapon sprite(s) as screen-space NDC quads mapped into the
+// 4:3 box (320x200 virtual → box), and upload. Call BEFORE beginRenderPass.
+void DoomRenderPass::prepareOverlay(float ox, float oy, float boxW, float boxH, float W, float H) {
+    m_overlayDrawCount = 0;
+    if (!m_overlayPipeline) return;
+    IGpu& gpu = Renderer::GetGpu();
+    g_ovlVerts.clear(); g_ovlLump.clear(); g_ovlFirst.clear();
+
+    // Map a Doom 320x200 pixel to NDC within the box.
+    auto toNdc = [&](float px, float py, float& nx, float& ny) {
+        float bx = ox + (px / 320.0f) * boxW;
+        float by = oy + (py / 200.0f) * boxH;
+        nx = bx / W * 2.0f - 1.0f;
+        ny = 1.0f - by / H * 2.0f;
+    };
+
+    for (int idx = NUMPSPRITES_LOCAL - 1; idx >= 0; idx--) {   // flash over weapon? draw weapon then flash
+        float o[7];
+        if (!DG_WeaponSprite(idx, o)) continue;
+        int lump = (int)o[0];
+        float xL = o[1], yT = o[2], w = o[3], h = o[4];
+        int flip = (int)o[5];
+        if (!spriteTexture(lump)) continue;
+        float nx0,ny0,nx1,ny1;
+        toNdc(xL, yT, nx0, ny0);            // top-left
+        toNdc(xL + w, yT + h, nx1, ny1);    // bottom-right
+        float uL = flip ? 1.f : 0.f, uR = flip ? 0.f : 1.f;
+        g_ovlFirst.push_back((int)g_ovlVerts.size()); g_ovlLump.push_back(lump);
+        g_ovlVerts.push_back({nx0,ny0, uL,0.f});
+        g_ovlVerts.push_back({nx1,ny0, uR,0.f});
+        g_ovlVerts.push_back({nx1,ny1, uR,1.f});
+        g_ovlVerts.push_back({nx0,ny0, uL,0.f});
+        g_ovlVerts.push_back({nx1,ny1, uR,1.f});
+        g_ovlVerts.push_back({nx0,ny1, uL,1.f});
+    }
+    if (g_ovlVerts.empty()) return;
+
+    uint32_t bytes = (uint32_t)(g_ovlVerts.size() * sizeof(OV));
+    if (bytes > m_overlayVBBytes) {
+        if (m_overlayVB) gpu.releaseBuffer(m_overlayVB);
+        m_overlayVB = gpu.createBuffer({ bytes, GpuBufferUsage::Vertex });
+        m_overlayVBBytes = bytes;
+    }
+    if (!m_overlayVB) return;
+    GpuTransferBufferHandle tb = gpu.createTransferBuffer({ bytes, GpuTransferUsage::Upload });
+    void* ptr = tb ? gpu.mapTransferBuffer(tb, false) : nullptr;
+    if (!ptr) { if (tb) gpu.releaseTransferBuffer(tb); return; }
+    std::memcpy(ptr, g_ovlVerts.data(), bytes);
+    gpu.unmapTransferBuffer(tb);
+    GpuCmdBufferHandle ucmd = gpu.acquireCommandBuffer();
+    gpu.uploadToBuffer(ucmd, tb, 0, m_overlayVB, 0, bytes, false);
+    gpu.submitCommandBuffer(ucmd);
+    gpu.releaseTransferBuffer(tb);
+    m_overlayDrawCount = (uint32_t)g_ovlLump.size();
+}
+
+void DoomRenderPass::drawOverlay(GpuRenderPassHandle rp) {
+    if (!m_overlayDrawCount || !m_overlayVB) return;
+    IGpu& gpu = Renderer::GetGpu();
+    gpu.bindGraphicsPipeline(rp, m_overlayPipeline);
+    GpuBufferBinding vb{ m_overlayVB, 0 };
+    gpu.bindVertexBuffers(rp, 0, &vb, 1);
+    for (uint32_t i = 0; i < m_overlayDrawCount; i++) {
+        GpuTextureHandle tex = spriteTexture(g_ovlLump[i]);
+        if (!tex) continue;
+        GpuTextureSamplerBinding tsb{ tex, m_spriteSampler };
+        gpu.bindFragmentSamplers(rp, 0, &tsb, 1);
+        gpu.drawPrimitives(rp, 6, 1, (uint32_t)g_ovlFirst[i], 0);
     }
 }
 

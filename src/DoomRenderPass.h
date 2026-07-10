@@ -50,4 +50,12 @@ private:
     void drawSprites(GpuCmdBufferHandle cmd, GpuRenderPassHandle rp,
                      const void* vpu, uint32_t vpuSize);
     uint32_t m_spriteDrawCount = 0;   // sprites ready to draw this frame
+
+    // Screen-space overlay (player weapon sprite, and later HUD/crosshair).
+    GpuGraphicsPipelineHandle m_overlayPipeline = 0;
+    GpuBufferHandle m_overlayVB = 0;
+    uint32_t        m_overlayVBBytes = 0;
+    void prepareOverlay(float ox, float oy, float boxW, float boxH, float W, float H);
+    void drawOverlay(GpuRenderPassHandle rp);
+    uint32_t m_overlayDrawCount = 0;
 };

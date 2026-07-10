@@ -87,6 +87,10 @@ int  DG_SpriteCount(void);
 void DG_Sprite(int i, float* out8);
 const unsigned char* DG_SpriteTextureRGBA(int lump, int* w, int* h);
 
+// Player weapon sprite (idx 0=weapon, 1=flash). Returns 1 if active; fills
+// out7 = {lump, xLeft, yTop, w, h (all in Doom 320x200 px), flip, fullbright}.
+int DG_WeaponSprite(int idx, float* out7);
+
 // Current camera: pos3 = engine-space eye {x, y_up, z}; yaw in radians (Doom
 // angle, CCW from +X); pitch in radians (renderer-only mouselook).
 void DG_GetView(float* pos3, float* yawRad, float* pitchRad);
