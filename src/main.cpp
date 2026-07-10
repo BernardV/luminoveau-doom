@@ -148,14 +148,30 @@ static float g_pitch   = 0.0f;    // look up/down angle, radians
 // than relying on SDL_EVENT_KEY_* callbacks, which proved unreliable on macOS
 // (mouse events arrive but key events don't). Polling reads the actual key state
 // and works as long as the OS delivers keyboard to the focused window.
+// WASD → movement while playing (W/S forward-back, A/D strafe) so you can walk
+// with the left hand and turn/aim with the mouse. Suppressed when a UI is up so
+// the letters still work for menus, cheats (iddqd…) and savegame names.
+static int WasdKey(int sc)
+{
+    switch (sc) {
+        case SDL_SCANCODE_W: return DG_KEY_UPARROW;
+        case SDL_SCANCODE_S: return DG_KEY_DOWNARROW;
+        case SDL_SCANCODE_A: return ',';   // strafe left
+        case SDL_SCANCODE_D: return '.';   // strafe right
+        default:             return 0;
+    }
+}
+
 static void PollKeyboard()
 {
     static bool prev[SDL_SCANCODE_COUNT] = {};
+    static int  sent[SDL_SCANCODE_COUNT] = {};   // doom key currently posted per scancode
     int n = 0;
     const bool* ks = SDL_GetKeyboardState(&n);
     if (!ks) return;
     if (n > SDL_SCANCODE_COUNT) n = SDL_SCANCODE_COUNT;
 
+    const bool ui = DG_UIActive();
     for (int sc = 0; sc < n; ++sc) {
         if (ks[sc] == prev[sc]) continue;
         prev[sc] = ks[sc];
@@ -170,9 +186,18 @@ static void PollKeyboard()
             }
             continue;
         }
-        SDL_Keycode kc = SDL_GetKeyFromScancode((SDL_Scancode)sc, SDL_GetModState(), false);
-        int dk = SdlKeyToDoom(kc);
-        if (dk) DG_KeyEvent(ks[sc] ? 1 : 0, dk);
+        if (ks[sc]) {
+            // Decide the Doom key on press: WASD → movement in-game, letters in UI.
+            int wasd = WasdKey(sc);
+            int dk = (wasd && !ui) ? wasd
+                   : SdlKeyToDoom(SDL_GetKeyFromScancode((SDL_Scancode)sc, SDL_GetModState(), false));
+            sent[sc] = dk;
+            if (dk) DG_KeyEvent(1, dk);
+        } else {
+            // Release whatever we posted for this scancode (mode may have changed while held).
+            if (sent[sc]) DG_KeyEvent(0, sent[sc]);
+            sent[sc] = 0;
+        }
     }
 }
 
