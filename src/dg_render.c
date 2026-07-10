@@ -122,50 +122,79 @@ static void build_walls(void) {
     }
 }
 
-// Fan-triangulate one subsector's floor+ceiling. Subsectors are convex, so the
-// ordered ring of seg endpoints (implicit BSP edges = straight segments between
-// consecutive seg endpoints) fans correctly.
-static void build_flats(void) {
-    static float ringX[256], ringZ[256];
-    for (int s = 0; s < numsubsectors; s++) {
-        subsector_t* sub = &subsectors[s];
-        sector_t* sec = sub->sector;
-        if (!sec || sub->numlines < 3) continue;
+// Doom subsectors are convex but their boundary is NOT fully described by segs
+// (1-2 segs is common; the rest are implicit BSP partition lines). So we can't
+// fan seg endpoints. Instead, reconstruct each subsector's exact convex polygon
+// by descending the BSP tree from the root and clipping a large quad by every
+// partition half-plane along the path — each leaf = intersection of half-planes.
 
-        int n = 0;
-        for (int k = 0; k < sub->numlines && n < 254; k++) {
-            seg_t* seg = &segs[sub->firstline + k];
-            float ax = FX(seg->v1->x), az = FX(seg->v1->y);
-            float bx = FX(seg->v2->x), bz = FX(seg->v2->y);
-            if (n == 0 || ringX[n-1] != ax || ringZ[n-1] != az) { ringX[n]=ax; ringZ[n]=az; n++; }
-            if (n < 255) { ringX[n]=bx; ringZ[n]=bz; n++; }
-        }
-        if (n > 1 && ringX[n-1] == ringX[0] && ringZ[n-1] == ringZ[0]) n--;  // drop closing dup
-        if (n < 3) continue;
+#define MAXPOLY 64
 
-        float shade = sec->lightlevel / 255.0f; if (shade < 0.f) shade = 0.f; if (shade > 1.f) shade = 1.f;
-        float fh = FX(sec->floorheight), ch = FX(sec->ceilingheight);
-        int floorPic = sec->floorpic, ceilPic = sec->ceilingpic;
-
-        // Floor (skip sky). Fan from ring[0].
-        if (floorPic != skyflatnum) {
-            for (int k = 1; k + 1 < n; k++) {
-                float p0[6] = {ringX[0], fh, ringZ[0], ringX[0]/64.f, ringZ[0]/64.f, shade};
-                float p1[6] = {ringX[k], fh, ringZ[k], ringX[k]/64.f, ringZ[k]/64.f, shade};
-                float p2[6] = {ringX[k+1], fh, ringZ[k+1], ringX[k+1]/64.f, ringZ[k+1]/64.f, shade};
-                add_tri(KIND_FLAT, floorPic, p0, p1, p2);
-            }
-        }
-        // Ceiling (skip sky).
-        if (ceilPic != skyflatnum) {
-            for (int k = 1; k + 1 < n; k++) {
-                float p0[6] = {ringX[0], ch, ringZ[0], ringX[0]/64.f, ringZ[0]/64.f, shade};
-                float p1[6] = {ringX[k], ch, ringZ[k], ringX[k]/64.f, ringZ[k]/64.f, shade};
-                float p2[6] = {ringX[k+1], ch, ringZ[k+1], ringX[k+1]/64.f, ringZ[k+1]/64.f, shade};
-                add_tri(KIND_FLAT, ceilPic, p0, p1, p2);
-            }
+// Sutherland-Hodgman clip of a convex poly (interleaved x,z) by the partition
+// half-plane. Side fn f = ndy*(x-nx) - ndx*(z-ny); keepFront keeps f>=0 (child 0).
+static int clip_half(const float* in, int n, float* out,
+                     float nx, float ny, float ndx, float ndy, int keepFront) {
+    int m = 0;
+    for (int i = 0; i < n && m < MAXPOLY - 1; i++) {
+        int j = (i + 1) % n;
+        float ax = in[2*i], az = in[2*i+1], bx = in[2*j], bz = in[2*j+1];
+        float fa = ndy * (ax - nx) - ndx * (az - ny);
+        float fb = ndy * (bx - nx) - ndx * (bz - ny);
+        if (!keepFront) { fa = -fa; fb = -fb; }
+        int ina = fa >= 0.0f, inb = fb >= 0.0f;
+        if (ina) { out[2*m] = ax; out[2*m+1] = az; m++; }
+        if (ina != inb && m < MAXPOLY - 1) {
+            float t = fa / (fa - fb);
+            out[2*m] = ax + t * (bx - ax); out[2*m+1] = az + t * (bz - az); m++;
         }
     }
+    return m;
+}
+
+static void emit_flat_poly(int subidx, const float* poly, int n) {
+    if (n < 3) return;
+    subsector_t* sub = &subsectors[subidx];
+    sector_t* sec = sub->sector;
+    if (!sec) return;
+    float shade = sec->lightlevel / 255.0f; if (shade < 0.f) shade = 0.f; if (shade > 1.f) shade = 1.f;
+    float fh = FX(sec->floorheight), ch = FX(sec->ceilingheight);
+    int fp = sec->floorpic, cp = sec->ceilingpic;
+
+    for (int k = 1; k + 1 < n; k++) {
+        float x0 = poly[0], z0 = poly[1], x1 = poly[2*k], z1 = poly[2*k+1], x2 = poly[2*(k+1)], z2 = poly[2*(k+1)+1];
+        if (fp != skyflatnum) {
+            float p0[6]={x0,fh,z0, x0/64.f,z0/64.f, shade};
+            float p1[6]={x1,fh,z1, x1/64.f,z1/64.f, shade};
+            float p2[6]={x2,fh,z2, x2/64.f,z2/64.f, shade};
+            add_tri(KIND_FLAT, fp, p0, p1, p2);
+        }
+        if (cp != skyflatnum) {
+            float p0[6]={x0,ch,z0, x0/64.f,z0/64.f, shade};
+            float p1[6]={x1,ch,z1, x1/64.f,z1/64.f, shade};
+            float p2[6]={x2,ch,z2, x2/64.f,z2/64.f, shade};
+            add_tri(KIND_FLAT, cp, p0, p1, p2);
+        }
+    }
+}
+
+static void descend(int nodenum, const float* poly, int n) {
+    if (n < 3) return;
+    if (nodenum & NF_SUBSECTOR) { emit_flat_poly(nodenum & ~NF_SUBSECTOR, poly, n); return; }
+    node_t* nd = &nodes[nodenum];
+    float nx = FX(nd->x), ny = FX(nd->y), ndx = FX(nd->dx), ndy = FX(nd->dy);
+    float buf[2 * MAXPOLY];
+    int m = clip_half(poly, n, buf, nx, ny, ndx, ndy, 1);   // front → child 0
+    descend(nd->children[0], buf, m);
+    m = clip_half(poly, n, buf, nx, ny, ndx, ndy, 0);       // back  → child 1
+    descend(nd->children[1], buf, m);
+}
+
+static void build_flats(void) {
+    if (numnodes <= 0) return;
+    // Large seed quad covering the whole map (Doom coords fit in +-32768).
+    const float B = 32768.0f;
+    float quad[8] = { -B,-B,  B,-B,  B,B,  -B,B };
+    descend(numnodes - 1, quad, 4);
 }
 
 static int cmp_tri(const void* a, const void* b) {
