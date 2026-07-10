@@ -148,31 +148,14 @@ static float g_pitch   = 0.0f;    // look up/down angle, radians
 // than relying on SDL_EVENT_KEY_* callbacks, which proved unreliable on macOS
 // (mouse events arrive but key events don't). Polling reads the actual key state
 // and works as long as the OS delivers keyboard to the focused window.
-// WASD → movement while playing (W/S forward-back, A/D strafe) so you can walk
-// with the left hand and turn/aim with the mouse. Suppressed when a UI is up so
-// the letters still work for menus, cheats (iddqd…) and savegame names.
-static int WasdKey(int sc)
-{
-    switch (sc) {
-        case SDL_SCANCODE_W: return DG_KEY_UPARROW;
-        case SDL_SCANCODE_S: return DG_KEY_DOWNARROW;
-        case SDL_SCANCODE_A: return ',';   // strafe left
-        case SDL_SCANCODE_D: return '.';   // strafe right
-        default:             return 0;
-    }
-}
-
 static void PollKeyboard()
 {
     static bool prev[SDL_SCANCODE_COUNT] = {};
-    static int  sent[SDL_SCANCODE_COUNT]  = {};  // primary doom key posted per scancode
-    static int  sent2[SDL_SCANCODE_COUNT] = {};  // secondary (WASD also posts its letter, for cheats)
     int n = 0;
     const bool* ks = SDL_GetKeyboardState(&n);
     if (!ks) return;
     if (n > SDL_SCANCODE_COUNT) n = SDL_SCANCODE_COUNT;
 
-    const bool ui = DG_UIActive();
     for (int sc = 0; sc < n; ++sc) {
         if (ks[sc] == prev[sc]) continue;
         prev[sc] = ks[sc];
@@ -187,25 +170,12 @@ static void PollKeyboard()
             }
             continue;
         }
-        int letter = SdlKeyToDoom(SDL_GetKeyFromScancode((SDL_Scancode)sc, SDL_GetModState(), false));
-        if (ks[sc]) {
-            // WASD in-game: post the movement key AND the letter, so walking works
-            // while cheats (iddqd…) and messages still see the letters. Elsewhere
-            // just post the normal key.
-            int wasd = WasdKey(sc);
-            if (wasd && !ui) {
-                sent[sc]  = wasd;   DG_KeyEvent(1, wasd);
-                sent2[sc] = letter; if (letter) DG_KeyEvent(1, letter);
-            } else {
-                sent[sc]  = letter; sent2[sc] = 0;
-                if (letter) DG_KeyEvent(1, letter);
-            }
-        } else {
-            // Release whatever we posted (mode may have changed while the key was held).
-            if (sent[sc])  DG_KeyEvent(0, sent[sc]);
-            if (sent2[sc]) DG_KeyEvent(0, sent2[sc]);
-            sent[sc] = sent2[sc] = 0;
-        }
+        // Forward the plain key. WASD walk (W/S forward-back, A/D strafe) is handled
+        // inside Doom's G_BuildTiccmd, which reads these letters as movement too —
+        // so the letters still flow cleanly for cheats (iddqd…) and menus.
+        SDL_Keycode kc = SDL_GetKeyFromScancode((SDL_Scancode)sc, SDL_GetModState(), false);
+        int dk = SdlKeyToDoom(kc);
+        if (dk) DG_KeyEvent(ks[sc] ? 1 : 0, dk);
     }
 }
 
