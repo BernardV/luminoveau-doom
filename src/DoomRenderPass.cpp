@@ -332,6 +332,9 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
                             GpuTextureHandle   targetTexture,
                             const glm::mat4&   /*camera2d*/) {
     if (!m_pipeline || !DG_WorldReady()) return;
+    // When a menu/pause/automap is up, skip the GPU 3D so the software render
+    // (which draws those overlays) shows through the base blit instead.
+    if (DG_UIActive()) return;
     ensureGeometry();
     if (!m_vertexCount || !m_vertexBuffer) return;
 

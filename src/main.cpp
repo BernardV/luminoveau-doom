@@ -221,9 +221,8 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
         }
     }
 
-    // Mouselook needs relative mouse mode (locked, hidden cursor, raw deltas).
-    // Only in GPU mode — pitch is a renderer-only feature the software view lacks.
-    if (g_gpuMode) Window::SetRelativeMouseMode(true);
+    // Relative mouse mode (for mouselook) is toggled per-frame in AppIterate based
+    // on whether a menu/UI is up, so it's released when the user needs the cursor.
 
     return Lumi::Result::Continue;
 }
@@ -234,18 +233,28 @@ Lumi::Result AppIterate(void* /*appstate*/)
 
     // Mouselook (GPU mode): horizontal delta turns the player in the game sim
     // (via Doom's ev_mouse), vertical delta drives the renderer-only pitch.
+    // Suspended while a menu/pause/automap is up — and the cursor is released
+    // then so the user can move the mouse freely.
     if (g_gpuMode) {
-        vf2d md = Input::GetMouseDelta();
-        // Discard the first few frames: entering relative-mouse mode emits a
-        // spurious initial delta that would jerk the view/pitch on startup.
-        static int settle = 0;
-        if (settle < 6) { settle++; md = {0.0f, 0.0f}; }
-        if (md.x != 0.0f) DG_MouseEvent(g_mouseButtons, (int)(md.x * 2.0f), 0);
-        g_pitch -= md.y * 0.003f;      // up = look up (screen-y grows downward)
-        const float lim = 1.30f;        // ~74°, clamp so we don't flip over
-        if (g_pitch >  lim) g_pitch =  lim;
-        if (g_pitch < -lim) g_pitch = -lim;
-        DG_SetPitch(g_pitch);
+        bool uiActive = DG_UIActive();
+        static int  prevRelative = -1;  // -1 = force first apply
+        static int  settle = 0;
+        int wantRelative = uiActive ? 0 : 1;
+        if (wantRelative != prevRelative) {
+            Window::SetRelativeMouseMode(wantRelative != 0);
+            prevRelative = wantRelative;
+            settle = 0;                 // discard the spurious delta after (re)capture
+        }
+        if (!uiActive) {
+            vf2d md = Input::GetMouseDelta();
+            if (settle < 6) { settle++; md = {0.0f, 0.0f}; }
+            if (md.x != 0.0f) DG_MouseEvent(g_mouseButtons, (int)(md.x * 2.0f), 0);
+            g_pitch -= md.y * 0.003f;      // up = look up (screen-y grows downward)
+            const float lim = 1.30f;        // ~74°, clamp so we don't flip over
+            if (g_pitch >  lim) g_pitch =  lim;
+            if (g_pitch < -lim) g_pitch = -lim;
+            DG_SetPitch(g_pitch);
+        }
     }
 
     DG_Tic();                          // advance the game one tic

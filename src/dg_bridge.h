@@ -57,6 +57,10 @@ void DG_MusicMix(float* output, unsigned int frameCount, unsigned int channels);
 // True once a level is loaded and its geometry is available.
 int DG_WorldReady(void);
 
+// A fullscreen software UI is active (menu / pause / automap / non-level state).
+// Host: show the software render (not GPU 3D) and release the mouse.
+int DG_UIActive(void);
+
 // Wall geometry as interleaved floats: {x,y,z, u,v, shade} per vertex, triangles
 // (3 verts each), engine space, grouped by texture. *outFloatCount = total floats
 // (verts*6). *outVersion bumps on rebuild (level change) so the host re-uploads

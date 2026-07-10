@@ -245,6 +245,14 @@ int DG_WorldReady(void) {
     return (gamestate == GS_LEVEL) && (numsegs > 0) && (segs != NULL);
 }
 
+// A fullscreen software UI is active (menu, pause, automap, or a non-level
+// gamestate like the intermission/finale/title). The host uses this to show the
+// software render (which draws these) instead of the GPU 3D, and to free the mouse.
+int DG_UIActive(void) {
+    extern boolean menuactive, paused, automapactive;
+    return menuactive || paused || automapactive || (gamestate != GS_LEVEL);
+}
+
 const float* DG_WorldVertices(int* outFloatCount, unsigned* outVersion) {
     if (!DG_WorldReady()) { *outFloatCount = 0; if (outVersion) *outVersion = g_version; return NULL; }
     // Rebuild every frame: reads live sector floor/ceiling heights (doors, lifts,
