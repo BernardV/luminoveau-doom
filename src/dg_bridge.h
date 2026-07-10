@@ -102,6 +102,10 @@ void DG_GetView(float* pos3, float* yawRad, float* pitchRad);
 // Set the renderer-only pitch (look up/down), radians, + = up. Doom has no pitch.
 void DG_SetPitch(float pitchRad);
 
+// Muzzle-flash / light-amp brightness (0..1). Applied by the world/sprite frag
+// shaders as a localized point light at the eye with distance falloff.
+float DG_FlashLevel(void);
+
 // ── Doom keycodes (mirror doomdef.h; kept here so C++ needn't include it) ───
 #define DG_KEY_RIGHTARROW 0xae
 #define DG_KEY_LEFTARROW  0xac

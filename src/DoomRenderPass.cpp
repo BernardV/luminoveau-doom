@@ -422,6 +422,8 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
 
     gpu.bindGraphicsPipeline(rp, m_pipeline);
     gpu.pushVertexUniformData(cmdBuffer, 0, &vpu, sizeof(vpu));
+    float flash = DG_FlashLevel();
+    gpu.pushFragmentUniformData(cmdBuffer, 0, &flash, sizeof(flash));
     GpuBufferBinding vb{ m_vertexBuffer, 0 };
     gpu.bindVertexBuffers(rp, 0, &vb, 1);
 
@@ -511,6 +513,8 @@ void DoomRenderPass::drawSprites(GpuCmdBufferHandle cmd, GpuRenderPassHandle rp,
     IGpu& gpu = Renderer::GetGpu();
     gpu.bindGraphicsPipeline(rp, m_spritePipeline);
     gpu.pushVertexUniformData(cmd, 0, vpu, vpuSize);
+    float flash = DG_FlashLevel();
+    gpu.pushFragmentUniformData(cmd, 0, &flash, sizeof(flash));
     GpuBufferBinding vb{ m_spriteVB, 0 };
     gpu.bindVertexBuffers(rp, 0, &vb, 1);
     for (uint32_t i = 0; i < m_spriteDrawCount; i++) {
