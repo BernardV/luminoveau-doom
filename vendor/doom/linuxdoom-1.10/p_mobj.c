@@ -39,6 +39,11 @@ rcsid[] = "$Id: p_mobj.c,v 1.5 1997/02/03 22:45:12 b1 Exp $";
 
 #include "doomstat.h"
 
+// Freelook aiming (GPU renderer mouselook): the host sets these from the view
+// pitch. dg_lookslope = tan(pitch) in 16.16 fixed; dg_freelook enables override.
+fixed_t	dg_lookslope = 0;
+int	dg_freelook  = 0;
+
 
 void G_PlayerReborn (int player);
 void P_SpawnMapThing (mapthing_t*	mthing);
@@ -965,7 +970,15 @@ P_SpawnPlayerMissile
 	    slope = 0;
 	}
     }
-		
+
+    // Freelook: aim the missile along the player's view pitch (GPU renderer
+    // mouselook). Overrides autoaim so shots follow where you look vertically.
+    if (dg_freelook && source->player)
+    {
+	an = source->angle;
+	slope = dg_lookslope;
+    }
+	
     x = source->x;
     y = source->y;
     z = source->z + 4*8*FRACUNIT;

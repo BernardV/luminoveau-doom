@@ -616,6 +616,10 @@ void P_BulletSlope (mobj_t*	mo)
 	    bulletslope = P_AimLineAttack (mo, an, 16*64*FRACUNIT);
 	}
     }
+
+    // Freelook: aim hitscan shots along the player's view pitch (overrides autoaim).
+    if (dg_freelook && mo->player)
+	bulletslope = dg_lookslope;
 }
 
 

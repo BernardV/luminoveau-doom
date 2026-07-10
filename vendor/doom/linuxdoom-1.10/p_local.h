@@ -122,6 +122,10 @@ void 	P_SpawnBlood (fixed_t x, fixed_t y, fixed_t z, int damage);
 mobj_t* P_SpawnMissile (mobj_t* source, mobj_t* dest, mobjtype_t type);
 void	P_SpawnPlayerMissile (mobj_t* source, mobjtype_t type);
 
+// Freelook aiming (GPU renderer mouselook), set by the host from view pitch.
+extern fixed_t	dg_lookslope;
+extern int	dg_freelook;
+
 
 //
 // P_ENEMY
