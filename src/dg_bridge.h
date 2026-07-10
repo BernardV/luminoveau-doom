@@ -78,6 +78,15 @@ const unsigned char* DG_FlatTextureRGBA(int picnum, int* w, int* h);
 // Current sky texture id (a composite texture id; fetch pixels via DG_WallTextureRGBA).
 int DG_SkyTextureId(void);
 
+// ── Sprites (things) ─────────────────────────────────────────────────────────
+// DG_SpriteCount rebuilds the per-frame visible-thing list and returns its size.
+// DG_Sprite fills out8 = {x, y_feet, z, halfWidth, topY, lump, flip, shade} in
+// engine space. DG_SpriteTextureRGBA gives the patch as RGBA8 with alpha (0 in
+// transparent gaps), cached by lump.
+int  DG_SpriteCount(void);
+void DG_Sprite(int i, float* out8);
+const unsigned char* DG_SpriteTextureRGBA(int lump, int* w, int* h);
+
 // Current camera: pos3 = engine-space eye {x, y_up, z}; yaw in radians (Doom
 // angle, CCW from +X); pitch in radians (0 until mouselook, Fase 5).
 void DG_GetView(float* pos3, float* yawRad, float* pitchRad);

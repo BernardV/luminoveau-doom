@@ -37,5 +37,16 @@ private:
     GpuSampleCount  m_sampleCount  = GpuSampleCount::x1;
     uint32_t        m_depthW = 0, m_depthH = 0;
 
-    GpuGraphicsPipelineHandle m_skyPipeline = 0;   // fullscreen sky background
+    GpuGraphicsPipelineHandle m_skyPipeline = 0;    // fullscreen sky background
+
+    // Sprites (billboards): rebuilt + re-uploaded each frame.
+    GpuGraphicsPipelineHandle m_spritePipeline = 0;
+    GpuBufferHandle m_spriteVB = 0;
+    uint32_t        m_spriteVBBytes = 0;
+    GpuSamplerHandle m_spriteSampler = 0;
+    // Build billboards + upload their textures/VB (call BEFORE beginRenderPass).
+    void prepareSprites(float camRightX, float camRightZ);
+    // Issue sprite draws (call INSIDE the render pass).
+    void drawSprites(GpuCmdBufferHandle cmd, GpuRenderPassHandle rp, const void* mvp);
+    uint32_t m_spriteDrawCount = 0;   // sprites ready to draw this frame
 };

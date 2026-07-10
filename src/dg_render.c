@@ -10,16 +10,23 @@
 #include <math.h>
 
 #include "doomdef.h"
-#include "doomstat.h"     // gamestate, skyflatnum
+#include "doomstat.h"     // gamestate, skyflatnum, players, consoleplayer
 #include "doomdata.h"     // ML_TWOSIDED / ML_DONTPEG*
 #include "r_state.h"
 #include "r_defs.h"
 #include "r_data.h"       // R_GetColumn
+#include "r_main.h"       // R_PointToAngle2
+#include "p_mobj.h"       // mobj_t
+#include "p_local.h"      // thinkercap
+#include "p_pspr.h"       // FF_FRAMEMASK / FF_FULLBRIGHT
 #include "w_wad.h"
 #include "z_zone.h"
 #include "m_fixed.h"
+#include "tables.h"       // ANG45, angle_t
 
 #include "dg_bridge.h"
+
+void P_MobjThinker();     // to match thinker.function.acp1 for mobj filtering
 
 // File-local-to-r_data.c globals we need (not header-exposed but non-static).
 extern int   numtextures;
@@ -306,6 +313,119 @@ const unsigned char* DG_FlatTextureRGBA(int flatidx, int* w, int* h) {
 int DG_SkyTextureId(void) {
     extern int skytexture;
     return skytexture;
+}
+
+// ── Sprites (things: monsters, items, decorations) ───────────────────────────
+// Enumerated per frame from the thinker list, like R_ProjectSprite: pick the
+// sprite lump for the current frame + view rotation (8 dirs) and flip.
+
+typedef struct {
+    float x, y, z;     // engine-space: x, feet-height (y-up), z
+    float halfW;       // half sprite width in world units
+    float top;         // world Y of the sprite's top
+    int   lump;        // absolute sprite patch lump (firstspritelump + rel)
+    int   flip;        // 1 = mirror U
+    float shade;       // sector light (or 1 for fullbright)
+} dg_sprite_t;
+
+static dg_sprite_t* g_sprites = NULL;
+static int g_spriteCount = 0, g_spriteCap = 0;
+
+static void build_sprites(void) {
+    g_spriteCount = 0;
+    if (!thinkercap.next) return;
+
+    angle_t viewa = viewangle;
+    for (thinker_t* th = thinkercap.next; th != &thinkercap; th = th->next) {
+        if (th->function.acp1 != (actionf_p1)P_MobjThinker) continue;
+        mobj_t* mo = (mobj_t*)th;
+        if (mo->player) continue;   // don't draw the player's own body
+
+        if (mo->sprite < 0 || mo->sprite >= numsprites) continue;
+        spritedef_t* sprdef = &sprites[mo->sprite];
+        int frame = mo->frame & FF_FRAMEMASK;
+        if (frame >= sprdef->numframes) continue;
+        spriteframe_t* sf = &sprdef->spriteframes[frame];
+
+        int rot = 0;
+        if (sf->rotate) {
+            angle_t ang = R_PointToAngle2(viewx, viewy, mo->x, mo->y);
+            rot = (ang - mo->angle + (unsigned)(ANG45 / 2) * 9) >> 29;
+        }
+        int rel = sf->lump[rot];
+        int flip = sf->flip[rot];
+        int lump = firstspritelump + rel;
+
+        float sw = FX(spritewidth[rel]);
+        float soff = FX(spriteoffset[rel]);
+        float stop = FX(spritetopoffset[rel]);
+
+        if (g_spriteCount >= g_spriteCap) {
+            g_spriteCap = g_spriteCap ? g_spriteCap * 2 : 256;
+            g_sprites = (dg_sprite_t*)realloc(g_sprites, g_spriteCap * sizeof(dg_sprite_t));
+        }
+        dg_sprite_t* s = &g_sprites[g_spriteCount++];
+        s->x = FX(mo->x); s->z = FX(mo->y);        // Doom XY -> engine XZ
+        s->y = FX(mo->z);                          // feet
+        s->halfW = sw * 0.5f;
+        // leftoffset shifts the billboard horizontally; approximate by centering
+        // on the sprite's origin: origin is `soff` from the left edge.
+        s->top = FX(mo->z) + stop;                 // top of sprite above feet
+        (void)soff;
+        s->lump = lump; s->flip = flip;
+        float shade = mo->subsector->sector->lightlevel / 255.0f;
+        if (mo->frame & FF_FULLBRIGHT) shade = 1.0f;
+        if (shade < 0.f) shade = 0.f; if (shade > 1.f) shade = 1.f;
+        s->shade = shade;
+    }
+}
+
+int DG_SpriteCount(void) { build_sprites(); return g_spriteCount; }
+
+void DG_Sprite(int i, float* out8) {
+    // out: x,y,z, halfW, top, lump, flip, shade
+    if (i < 0 || i >= g_spriteCount) { for (int k=0;k<8;k++) out8[k]=0; return; }
+    dg_sprite_t* s = &g_sprites[i];
+    out8[0]=s->x; out8[1]=s->y; out8[2]=s->z; out8[3]=s->halfW;
+    out8[4]=s->top; out8[5]=(float)s->lump; out8[6]=(float)s->flip; out8[7]=s->shade;
+}
+
+// Decode a sprite patch (posts) to RGBA with alpha (0 in transparent gaps).
+static unsigned char** g_sprRGBA = NULL; static int* g_sprW = NULL; static int* g_sprH = NULL; static int g_sprN = 0;
+
+const unsigned char* DG_SpriteTextureRGBA(int lump, int* w, int* h) {
+    if (lump < 0) { *w = *h = 0; return NULL; }
+    if (g_sprN <= lump) {
+        int n = lump + 1;
+        g_sprRGBA = (unsigned char**)realloc(g_sprRGBA, n * sizeof(unsigned char*));
+        g_sprW = (int*)realloc(g_sprW, n * sizeof(int));
+        g_sprH = (int*)realloc(g_sprH, n * sizeof(int));
+        for (int k = g_sprN; k < n; k++) { g_sprRGBA[k]=NULL; g_sprW[k]=g_sprH[k]=0; }
+        g_sprN = n;
+    }
+    if (g_sprRGBA[lump]) { *w = g_sprW[lump]; *h = g_sprH[lump]; return g_sprRGBA[lump]; }
+
+    const patch_t* p = (const patch_t*)W_CacheLumpNum(lump, PU_CACHE);
+    const unsigned char* pal = (const unsigned char*)W_CacheLumpName("PLAYPAL", PU_CACHE);
+    int pw = p->width, ph = p->height;
+    unsigned char* out = (unsigned char*)calloc((size_t)pw * ph, 4);   // alpha 0 = transparent
+    const unsigned char* base = (const unsigned char*)p;
+    for (int x = 0; x < pw; x++) {
+        const post_t* post = (const post_t*)(base + p->columnofs[x]);
+        while (post->topdelta != 0xff) {
+            const unsigned char* data = (const unsigned char*)post + 3;  // skip topdelta,length,pad
+            for (int y = 0; y < post->length; y++) {
+                int py = post->topdelta + y;
+                if (py < 0 || py >= ph) continue;
+                int idx = data[y];
+                unsigned char* o = &out[((size_t)py * pw + x) * 4];
+                o[0]=pal[idx*3]; o[1]=pal[idx*3+1]; o[2]=pal[idx*3+2]; o[3]=255;
+            }
+            post = (const post_t*)((const unsigned char*)post + post->length + 4); // next post
+        }
+    }
+    g_sprRGBA[lump] = out; g_sprW[lump] = pw; g_sprH[lump] = ph;
+    *w = pw; *h = ph; return out;
 }
 
 void DG_GetView(float* pos3, float* yawRad, float* pitchRad) {

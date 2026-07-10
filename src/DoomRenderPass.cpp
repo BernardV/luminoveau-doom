@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <unordered_map>
+#include <vector>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -145,6 +146,38 @@ bool DoomRenderPass::init(GpuTextureFormat swapchainFormat,
     }
     if (!m_skyPipeline) LOG_WARNING("DoomRenderPass: sky pipeline unavailable (sky disabled)");
 
+    // Sprite pipeline: same vertex layout as walls (pos+uv+shade), alpha-tested
+    // (discard in shader), depth test+write on, no culling (billboards).
+    Shader spv = AssetHandler::GetShader("assets/shaders/doom_sprite.vert");
+    Shader spf = AssetHandler::GetShader("assets/shaders/doom_sprite.frag");
+    if (spv.gpuShader && spf.gpuShader) {
+        GpuGraphicsPipelineCreateInfo pp{};
+        pp.vertexShader      = spv.gpuShader;
+        pp.fragmentShader    = spf.gpuShader;
+        pp.attributes        = attrs;      // reuse world layout (Float3,Float2,Float)
+        pp.attributeCount    = 3;
+        pp.bindings          = &vbind;
+        pp.bindingCount      = 1;
+        pp.fillMode          = GpuFillMode::Fill;
+        pp.cullMode          = GpuCullMode::None;
+        pp.frontFace         = GpuFrontFace::CounterClockwise;
+        pp.colorTargetFormat = swapchainFormat;
+        pp.hasDepthTarget    = true;
+        pp.depthTargetFormat = GpuTextureFormat::D32_Float;
+        pp.sampleCount       = m_sampleCount;
+        m_spritePipeline = gpu.createGraphicsPipeline(pp);
+    }
+    if (!m_spritePipeline) LOG_WARNING("DoomRenderPass: sprite pipeline unavailable");
+    // Sprites: nearest, clamp (no bleeding across the patch edge).
+    {
+        GpuSamplerCreateInfo ss2{};
+        ss2.minFilter = GpuFilter::Nearest; ss2.magFilter = GpuFilter::Nearest; ss2.mipFilter = GpuFilter::Nearest;
+        ss2.addressU = GpuSamplerAddressMode::ClampToEdge;
+        ss2.addressV = GpuSamplerAddressMode::ClampToEdge;
+        ss2.addressW = GpuSamplerAddressMode::ClampToEdge;
+        m_spriteSampler = gpu.createSampler(ss2);
+    }
+
     if (logInit) LOG_INFO("DoomRenderPass: initialized ({})", passname.c_str());
     return true;
 }
@@ -191,6 +224,39 @@ void DoomRenderPass::ensureGeometry() {
     uploadTexture(DG_KIND_WALL, DG_SkyTextureId());   // sky is a composite texture
 }
 
+// Sprite texture cache (by lump). Kept separate: RGBA patches with alpha.
+static std::unordered_map<int, GpuTextureHandle> g_spriteTextures;
+static GpuTextureHandle spriteTexture(int lump) {
+    auto it = g_spriteTextures.find(lump);
+    if (it != g_spriteTextures.end()) return it->second;
+    int w = 0, h = 0;
+    const unsigned char* rgba = DG_SpriteTextureRGBA(lump, &w, &h);
+    GpuTextureHandle tex = 0;
+    if (rgba && w > 0 && h > 0) {
+        IGpu& gpu = Renderer::GetGpu();
+        GpuTextureCreateInfo ci{};
+        ci.width=(uint32_t)w; ci.height=(uint32_t)h; ci.depthOrLayers=1; ci.numLevels=1;
+        ci.format=GpuTextureFormat::R8G8B8A8_Unorm; ci.sampleCount=GpuSampleCount::x1;
+        ci.usage=GpuTextureUsage::Sampler|GpuTextureUsage::Transfer;
+        tex = gpu.createTexture(ci);
+        if (tex) {
+            const uint32_t bytes=(uint32_t)w*h*4u;
+            GpuTransferBufferHandle tb = gpu.createTransferBuffer({bytes, GpuTransferUsage::Upload});
+            void* ptr = tb ? gpu.mapTransferBuffer(tb, false) : nullptr;
+            if (ptr) {
+                std::memcpy(ptr, rgba, bytes); gpu.unmapTransferBuffer(tb);
+                GpuCmdBufferHandle cmd = gpu.acquireCommandBuffer();
+                GpuTransferBufferRegion src{}; src.transferBuffer=tb;
+                GpuTextureRegion dst{}; dst.texture=tex; dst.width=(uint32_t)w; dst.height=(uint32_t)h; dst.depth=1;
+                gpu.uploadToTexture(cmd, src, dst, false);
+                gpu.submitCommandBuffer(cmd); gpu.releaseTransferBuffer(tb);
+            } else if (tex) { gpu.releaseTexture(tex); tex = 0; }
+        }
+    }
+    g_spriteTextures[lump] = tex;
+    return tex;
+}
+
 void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
                             GpuTextureHandle   targetTexture,
                             const glm::mat4&   /*camera2d*/) {
@@ -225,6 +291,10 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
     const float vFov = 2.0f * std::atan(std::tan(hFov * 0.5f) / (aspect > 0 ? aspect : 1.0f));
     glm::mat4 proj = glm::perspectiveLH_ZO(vFov, aspect, 1.0f, 20000.0f);
     glm::mat4 mvp  = proj * view;
+
+    // Build + upload sprite billboards BEFORE the render pass (uploads acquire
+    // their own command buffers). Right vector is perpendicular to view fwd in XZ.
+    prepareSprites(-std::sin(yaw), std::cos(yaw));
 
     const bool shouldResolve = (renderTargetResolve != 0);
     GpuColorTargetInfo ct{};
@@ -278,7 +348,84 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
         gpu.drawPrimitives(rp, (uint32_t)count, 1, (uint32_t)first, 0);
     }
 
+    // Sprites (billboards) after the world so they depth-test against it.
+    drawSprites(cmdBuffer, rp, &mvp);
+
     gpu.endRenderPass(rp);
+}
+
+namespace {
+struct SV { float x,y,z,u,v,s; };
+std::vector<SV>  g_spriteVerts;
+std::vector<int> g_spriteLump;    // texture lump per sprite
+std::vector<int> g_spriteFirst;   // first vertex per sprite
+}
+
+// Called BEFORE beginRenderPass: builds billboards + uploads textures and the VB
+// (all of which acquire/submit command buffers, illegal inside a render pass).
+void DoomRenderPass::prepareSprites(float camRightX, float camRightZ) {
+    m_spriteDrawCount = 0;
+    if (!m_spritePipeline) return;
+    int n = DG_SpriteCount();
+    if (n <= 0) return;
+    IGpu& gpu = Renderer::GetGpu();
+    glm::vec3 right(camRightX, 0.0f, camRightZ);
+
+    g_spriteVerts.clear(); g_spriteLump.clear(); g_spriteFirst.clear();
+    for (int i = 0; i < n; i++) {
+        float o[8]; DG_Sprite(i, o);
+        glm::vec3 pos(o[0], o[1], o[2]);
+        float halfW = o[3], top = o[4];
+        int lump = (int)o[5]; int flip = (int)o[6]; float shade = o[7];
+        if (!spriteTexture(lump)) continue;   // upload now (before the pass)
+        glm::vec3 L = pos - right * halfW, R = pos + right * halfW;
+        float y0 = pos.y, y1 = top;
+        float uL = flip ? 1.f : 0.f, uR = flip ? 0.f : 1.f;
+        g_spriteFirst.push_back((int)g_spriteVerts.size()); g_spriteLump.push_back(lump);
+        g_spriteVerts.push_back({L.x,y0,L.z, uL,1.f, shade});
+        g_spriteVerts.push_back({R.x,y0,R.z, uR,1.f, shade});
+        g_spriteVerts.push_back({R.x,y1,R.z, uR,0.f, shade});
+        g_spriteVerts.push_back({L.x,y0,L.z, uL,1.f, shade});
+        g_spriteVerts.push_back({R.x,y1,R.z, uR,0.f, shade});
+        g_spriteVerts.push_back({L.x,y1,L.z, uL,0.f, shade});
+    }
+    if (g_spriteVerts.empty()) return;
+
+    uint32_t bytes = (uint32_t)(g_spriteVerts.size() * sizeof(SV));
+    if (bytes > m_spriteVBBytes) {
+        if (m_spriteVB) gpu.releaseBuffer(m_spriteVB);
+        m_spriteVB = gpu.createBuffer({ bytes, GpuBufferUsage::Vertex });
+        m_spriteVBBytes = bytes;
+    }
+    if (!m_spriteVB) return;
+    GpuTransferBufferHandle tb = gpu.createTransferBuffer({ bytes, GpuTransferUsage::Upload });
+    void* ptr = tb ? gpu.mapTransferBuffer(tb, false) : nullptr;
+    if (!ptr) { if (tb) gpu.releaseTransferBuffer(tb); return; }
+    std::memcpy(ptr, g_spriteVerts.data(), bytes);
+    gpu.unmapTransferBuffer(tb);
+    GpuCmdBufferHandle ucmd = gpu.acquireCommandBuffer();
+    gpu.uploadToBuffer(ucmd, tb, 0, m_spriteVB, 0, bytes, false);
+    gpu.submitCommandBuffer(ucmd);
+    gpu.releaseTransferBuffer(tb);
+
+    m_spriteDrawCount = (uint32_t)g_spriteLump.size();
+}
+
+// Called INSIDE the render pass: draw only (no uploads).
+void DoomRenderPass::drawSprites(GpuCmdBufferHandle cmd, GpuRenderPassHandle rp, const void* mvpPtr) {
+    if (!m_spriteDrawCount || !m_spriteVB) return;
+    IGpu& gpu = Renderer::GetGpu();
+    gpu.bindGraphicsPipeline(rp, m_spritePipeline);
+    gpu.pushVertexUniformData(cmd, 0, mvpPtr, sizeof(glm::mat4));
+    GpuBufferBinding vb{ m_spriteVB, 0 };
+    gpu.bindVertexBuffers(rp, 0, &vb, 1);
+    for (uint32_t i = 0; i < m_spriteDrawCount; i++) {
+        GpuTextureHandle tex = spriteTexture(g_spriteLump[i]);   // cached (uploaded in prepare)
+        if (!tex) continue;
+        GpuTextureSamplerBinding tsb{ tex, m_spriteSampler };
+        gpu.bindFragmentSamplers(rp, 0, &tsb, 1);
+        gpu.drawPrimitives(rp, 6, 1, (uint32_t)g_spriteFirst[i], 0);
+    }
 }
 
 void DoomRenderPass::release(bool /*logRelease*/) {
