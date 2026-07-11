@@ -426,12 +426,14 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
         }
     }
 
-    // Fase 7 — GPU is the sole 3D renderer (opt-in via DOOM_SOLE=1 for now). Doom
-    // skips its software 3D and clears that region to a transparent sentinel; the
-    // software HUD/menu is composited OVER the GPU 3D via a "hud" render target
+    // Fase 7 — GPU is the sole 3D renderer (on by default; DOOM_SOLE=0 disables).
+    // Doom skips its software 3D and clears that region to a transparent sentinel;
+    // the software HUD/menu is composited OVER the GPU 3D via a "hud" render target
     // (renderToScreen), so the menu background becomes the GPU 3D and the wasted
     // software 3D render is reclaimed.
-    if (g_gpuMode && getenv("DOOM_SOLE")) {
+    const char* soleEnv = getenv("DOOM_SOLE");
+    bool soleEnabled = !(soleEnv && soleEnv[0] == '0' && soleEnv[1] == '\0');
+    if (g_gpuMode && soleEnabled) {
         SpriteRenderTargetConfig hudCfg;
         hudCfg.renderToScreen = true;             // composite over the primary (GPU) framebuffer
         hudCfg.clearOnLoad    = true;
