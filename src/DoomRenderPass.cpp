@@ -416,6 +416,15 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
     glm::vec3 fwd(std::cos(yaw) * std::cos(pitch), std::sin(pitch), std::sin(yaw) * std::cos(pitch));
     glm::mat4 view = glm::lookAtLH(pos, pos + fwd, glm::vec3(0, 1, 0));
 
+    // The depth attachment must match the FULL colour target (fbContent) size, not
+    // the window — the primary framebuffer is created at desktop bounds and never
+    // shrinks (passes just use a viewport). WebGPU validates depth size == colour
+    // size strictly (Metal did not), so keep our depth sized to the framebuffer.
+    if (FrameBuffer* fb = Renderer::GetFramebuffer("primaryFramebuffer")) {
+        if (fb->width && fb->height && (fb->width != m_depthW || fb->height != m_depthH))
+            createDepth(fb->width, fb->height);
+    }
+
     // Match the software view region so the GPU 3D lines up with (and covers)
     // Doom's own 4:3-letterboxed view — main.cpp blits the 320x200 image into a
     // 4:3 box centred in the window, with the 32px status bar in its bottom
