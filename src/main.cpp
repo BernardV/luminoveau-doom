@@ -306,10 +306,24 @@ static void PollGamepad()
 static bool TouchAvailable()
 {
     if (getenv("DOOM_TOUCH")) return true;
+#ifdef __EMSCRIPTEN__
+    // Web: auto-enable only for a REAL hardware touchscreen. SDL also exposes a
+    // synthetic "pen"/"mouse" touch device (negative id) for pointer emulation —
+    // skip it, else desktop browsers get stray on-screen controls.
     int count = 0;
     SDL_TouchID* devs = SDL_GetTouchDevices(&count);
+    bool hasScreen = false;
+    for (int i = 0; i < count; i++) {
+        if ((int64_t)devs[i] < 0) continue;                          // synthetic mouse/pen device
+        if (SDL_GetTouchDeviceType(devs[i]) == SDL_TOUCH_DEVICE_DIRECT) { hasScreen = true; break; }
+    }
     if (devs) SDL_free(devs);
-    return count > 0;
+    return hasScreen;
+#else
+    // Native desktop always has a mouse + keyboard, and SDL reports a synthetic
+    // pen/mouse "touch" device there — so never auto-enable; use DOOM_TOUCH=1 to test.
+    return false;
+#endif
 }
 
 static void PollTouch()
