@@ -442,6 +442,85 @@ static void build_sprites(void) {
 
 int DG_SpriteCount(void) { build_sprites(); return g_spriteCount; }
 
+// ── Dynamic colored point lights ─────────────────────────────────────────────
+// Gathered per frame from light-emitting mobjs: projectiles (colored by type)
+// and fullbright decorations (torches/lamps). The nearest DG_MAX_LIGHTS to the
+// camera are fed to the world/sprite shaders which add a colored, distance-
+// attenuated contribution.
+typedef struct { float x, y, z, r, g, b, rad, dist2; } dg_light_t;
+static dg_light_t g_lights[DG_MAX_LIGHTS];
+static int        g_lightCount = 0;
+
+static void light_color(mobj_t* mo, float* r, float* g, float* b, float* rad) {
+    if (mo->flags & MF_MISSILE) {
+        switch (mo->type) {
+            case MT_TROOPSHOT:   *r=1.0f; *g=0.45f;*b=0.10f; *rad=170; return; // imp fireball
+            case MT_FATSHOT:     *r=1.0f; *g=0.50f;*b=0.15f; *rad=170; return;
+            case MT_HEADSHOT:    *r=0.55f;*g=0.35f;*b=1.00f; *rad=170; return; // caco
+            case MT_BRUISERSHOT: *r=0.30f;*g=1.00f;*b=0.25f; *rad=180; return; // baron/knight
+            case MT_ROCKET:      *r=0.80f;*g=0.55f;*b=0.25f; *rad=130; return;
+            case MT_PLASMA:      *r=0.35f;*g=0.55f;*b=1.00f; *rad=160; return;
+            case MT_ARACHPLAZ:   *r=0.40f;*g=0.60f;*b=1.00f; *rad=160; return;
+            case MT_BFG:         *r=0.35f;*g=1.00f;*b=0.40f; *rad=320; return; // big green
+            default:             *r=0.95f;*g=0.70f;*b=0.40f; *rad=150; return;
+        }
+    }
+    // Fullbright decoration (torch/lamp) — warm glow. (Blue/green torches glow
+    // warm too for now; per-type tinting can come later.)
+    *r=1.0f; *g=0.72f; *b=0.38f; *rad=150;
+}
+
+static void gather_lights(void) {
+    g_lightCount = 0;
+    if (!thinkercap.next) return;
+    float cx = FX(viewx), cz = FX(viewy);
+
+    for (thinker_t* th = thinkercap.next; th != &thinkercap; th = th->next) {
+        if (th->function.acp1 != (actionf_p1)P_MobjThinker) continue;
+        mobj_t* mo = (mobj_t*)th;
+        if (mo->player) continue;
+        int emits = (mo->flags & MF_MISSILE) || (mo->frame & FF_FULLBRIGHT);
+        if (!emits) continue;
+
+        dg_light_t L;
+        L.x = FX(mo->x); L.z = FX(mo->y);
+        L.y = FX(mo->z) + FX(mo->height) * 0.5f;
+        light_color(mo, &L.r, &L.g, &L.b, &L.rad);
+        float dx = L.x - cx, dz = L.z - cz;
+        L.dist2 = dx*dx + dz*dz;
+        if (L.dist2 > (L.rad + 400.0f) * (L.rad + 400.0f)) continue;  // cull far-away
+
+        if (g_lightCount < DG_MAX_LIGHTS) {
+            g_lights[g_lightCount++] = L;
+        } else {
+            // Replace the farthest kept light if this one is nearer.
+            int far = 0;
+            for (int k = 1; k < DG_MAX_LIGHTS; k++)
+                if (g_lights[k].dist2 > g_lights[far].dist2) far = k;
+            if (L.dist2 < g_lights[far].dist2) g_lights[far] = L;
+        }
+    }
+
+    // Optional verification: a bright cyan light at the player's feet-ish.
+    if (getenv("DOOM_LIGHTTEST") && g_lightCount < DG_MAX_LIGHTS) {
+        mobj_t* pmo = players[consoleplayer].mo;
+        if (pmo) {
+            dg_light_t L = { FX(pmo->x), FX(pmo->z)+30.0f, FX(pmo->y),
+                             0.2f, 1.0f, 1.0f, 400.0f, 0.0f };
+            g_lights[g_lightCount++] = L;
+        }
+    }
+}
+
+int DG_LightCount(void) { gather_lights(); return g_lightCount; }
+
+void DG_Light(int i, float* out7) {
+    if (i < 0 || i >= g_lightCount) { for (int k=0;k<7;k++) out7[k]=0; return; }
+    dg_light_t* L = &g_lights[i];
+    out7[0]=L->x; out7[1]=L->y; out7[2]=L->z;
+    out7[3]=L->r; out7[4]=L->g; out7[5]=L->b; out7[6]=L->rad;
+}
+
 void DG_Sprite(int i, float* out8) {
     // out: x,y,z, halfW, top, lump, flip, shade
     if (i < 0 || i >= g_spriteCount) { for (int k=0;k<8;k++) out8[k]=0; return; }

@@ -61,7 +61,8 @@ private:
     void prepareSprites(float camRightX, float camRightZ);
     // Issue sprite draws (call INSIDE the render pass).
     void drawSprites(GpuCmdBufferHandle cmd, GpuRenderPassHandle rp,
-                     const void* vpu, uint32_t vpuSize);
+                     const void* vpu, uint32_t vpuSize,
+                     const void* lightU, uint32_t lightSize);
     uint32_t m_spriteDrawCount = 0;   // sprites ready to draw this frame
 
     // Screen-space overlay (player weapon sprite, and later HUD/crosshair).

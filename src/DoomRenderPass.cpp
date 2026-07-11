@@ -438,6 +438,26 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
     vpu.mvp = proj * view;
     vpu.eye = glm::vec4(pos, 1.0f);
 
+    // Fragment lighting uniform (set 3), shared by the world and sprite passes:
+    // the muzzle-flash scalar plus the dynamic coloured point lights. std140:
+    // vec4 arrays first (16-byte stride), then flash/count, padded to 16.
+    struct LightUBO {
+        float posRad[DG_MAX_LIGHTS][4];   // xyz world pos, w radius
+        float color [DG_MAX_LIGHTS][4];   // rgb colour
+        float flash; int count; float _pad[2];
+    } lightUBO;
+    std::memset(&lightUBO, 0, sizeof(lightUBO));
+    int nl = DG_LightCount();
+    if (nl > DG_MAX_LIGHTS) nl = DG_MAX_LIGHTS;
+    for (int i = 0; i < nl; i++) {
+        float o[7]; DG_Light(i, o);
+        lightUBO.posRad[i][0]=o[0]; lightUBO.posRad[i][1]=o[1];
+        lightUBO.posRad[i][2]=o[2]; lightUBO.posRad[i][3]=o[6];
+        lightUBO.color[i][0]=o[3]; lightUBO.color[i][1]=o[4]; lightUBO.color[i][2]=o[5];
+    }
+    lightUBO.flash = DG_FlashLevel();
+    lightUBO.count = nl;
+
     // Build + upload sprite billboards + weapon overlay BEFORE the render pass
     // (uploads acquire their own command buffers). Right vector ⟂ view fwd in XZ.
     prepareSprites(-std::sin(yaw), std::cos(yaw));
@@ -463,8 +483,7 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
 
         gpu.bindGraphicsPipeline(rp, m_pipeline);
         gpu.pushVertexUniformData(cmdBuffer, 0, &vpu, sizeof(vpu));
-        float flash = DG_FlashLevel();
-        gpu.pushFragmentUniformData(cmdBuffer, 0, &flash, sizeof(flash));
+        gpu.pushFragmentUniformData(cmdBuffer, 0, &lightUBO, sizeof(lightUBO));
         GpuBufferBinding vb{ m_vertexBuffer, 0 };
         gpu.bindVertexBuffers(rp, 0, &vb, 1);
 
@@ -482,7 +501,7 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
         }
 
         // Sprites (billboards) after the world so they depth-test against it.
-        drawSprites(cmdBuffer, rp, &vpu, sizeof(vpu));
+        drawSprites(cmdBuffer, rp, &vpu, sizeof(vpu), &lightUBO, sizeof(lightUBO));
     };
 
     // Bloom only in Modern (smooth) mode; Authentic+ stays crisp via the direct
@@ -625,13 +644,13 @@ void DoomRenderPass::prepareSprites(float camRightX, float camRightZ) {
 
 // Called INSIDE the render pass: draw only (no uploads).
 void DoomRenderPass::drawSprites(GpuCmdBufferHandle cmd, GpuRenderPassHandle rp,
-                                 const void* vpu, uint32_t vpuSize) {
+                                 const void* vpu, uint32_t vpuSize,
+                                 const void* lightU, uint32_t lightSize) {
     if (!m_spriteDrawCount || !m_spriteVB) return;
     IGpu& gpu = Renderer::GetGpu();
     gpu.bindGraphicsPipeline(rp, m_spritePipeline);
     gpu.pushVertexUniformData(cmd, 0, vpu, vpuSize);
-    float flash = DG_FlashLevel();
-    gpu.pushFragmentUniformData(cmd, 0, &flash, sizeof(flash));
+    gpu.pushFragmentUniformData(cmd, 0, lightU, lightSize);
     GpuBufferBinding vb{ m_spriteVB, 0 };
     gpu.bindVertexBuffers(rp, 0, &vb, 1);
     for (uint32_t i = 0; i < m_spriteDrawCount; i++) {

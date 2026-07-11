@@ -123,6 +123,15 @@ void DG_SetPitch(float pitchRad);
 // shaders as a localized point light at the eye with distance falloff.
 float DG_FlashLevel(void);
 
+// ── Dynamic colored point lights ────────────────────────────────────────────
+// Per-frame lights from projectiles (colored by type) + fullbright decorations.
+// DG_LightCount rebuilds the nearest-N list; DG_Light fills out7 = {x,y,z (engine
+// space), r,g,b (colour), radius}. The world/sprite shaders add a colored,
+// distance-attenuated contribution.
+#define DG_MAX_LIGHTS 16
+int  DG_LightCount(void);
+void DG_Light(int i, float* out7);
+
 // ── HUD message (drawn by the GPU overlay, over the 3D) ─────────────────────
 // Current top-of-screen message text ("" if none). Advance width for a space
 // or non-drawable char when laying out DG_FontGlyph glyphs.

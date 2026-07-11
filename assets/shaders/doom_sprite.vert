@@ -10,6 +10,7 @@ layout(location = 2) in float in_shade;
 layout(location = 0) out vec2  v_uv;
 layout(location = 1) out float v_shade;
 layout(location = 2) out float v_dist;
+layout(location = 3) out vec3  v_worldpos;
 
 layout(set = 1, binding = 0) uniform ViewProj {
     mat4 mvp;
@@ -18,7 +19,8 @@ layout(set = 1, binding = 0) uniform ViewProj {
 
 void main() {
     gl_Position = vp.mvp * vec4(in_pos, 1.0);
-    v_uv    = in_uv;
-    v_shade = in_shade;
-    v_dist  = length(in_pos - vp.eye.xyz);
+    v_uv       = in_uv;
+    v_shade    = in_shade;
+    v_dist     = length(in_pos - vp.eye.xyz);
+    v_worldpos = in_pos;
 }
