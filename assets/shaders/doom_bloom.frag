@@ -33,19 +33,23 @@ vec3 brightPass(vec2 uv) {
 }
 
 void main() {
-    vec3 base = texture(scene_tex, v_uv).rgb;
+    // scene_tex was rendered as a colour target; sampling it flips vertically vs
+    // the direct-to-screen path, so flip V here (the world was upside-down).
+    vec2 uv = vec2(v_uv.x, 1.0 - v_uv.y);
+
+    vec3 base = texture(scene_tex, uv).rgb;
     if (p.strength <= 0.0) { out_color = vec4(base, 1.0); return; }
 
     // Cheap two-ring radial blur of the bright-pass — enough for a soft halo
     // without a separable/downsampled chain.
-    vec3  sum  = brightPass(v_uv) * 4.0;
+    vec3  sum  = brightPass(uv) * 4.0;
     float wsum = 4.0;
     const int N = 12;
     for (int i = 0; i < N; i++) {
         float a = 6.2831853 * float(i) / float(N);
         vec2 dir = vec2(cos(a), sin(a));
-        sum += brightPass(v_uv + dir * p.texel * 3.0) * 2.0; wsum += 2.0;   // inner
-        sum += brightPass(v_uv + dir * p.texel * 6.0) * 1.0; wsum += 1.0;   // outer
+        sum += brightPass(uv + dir * p.texel * 3.0) * 2.0; wsum += 2.0;   // inner
+        sum += brightPass(uv + dir * p.texel * 6.0) * 1.0; wsum += 1.0;   // outer
     }
     vec3 bloom = sum / wsum;
     vec3 col = base + bloom * p.strength;

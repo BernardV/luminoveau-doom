@@ -30,10 +30,10 @@ static std::unordered_map<int, GpuTextureHandle> g_flatTextures;
 // (nearest, crisp original pixels). Toggled at runtime via DoomRenderPass_ToggleFilter.
 static GpuSamplerHandle g_wallSamplerSmooth = 0;
 static GpuSamplerHandle g_wallSamplerCrisp  = 0;
-static bool             g_wallSmooth = false;   // default Authentic+ (crisp); F5 → Modern
+static bool             g_wallSmooth = true;   // default Modern (smooth + bloom); F5 → Authentic+
 static GpuSamplerHandle wallSampler() {
     static int init = 0;
-    if (!init) { init = 1; if (getenv("DOOM_MODERN")) g_wallSmooth = true; }  // start mode
+    if (!init) { init = 1; if (getenv("DOOM_CRISP")) g_wallSmooth = false; }  // start mode
     return g_wallSmooth ? g_wallSamplerSmooth : g_wallSamplerCrisp;
 }
 int DoomRenderPass_ToggleFilter() { g_wallSmooth = !g_wallSmooth; return g_wallSmooth ? 1 : 0; }
