@@ -131,6 +131,34 @@ void DoomRenderPass::createDepth(uint32_t w, uint32_t h) {
     m_depthW = w; m_depthH = h;
 }
 
+// (Re)create the offscreen scene colour + depth used by the bloom path, sized to
+// the 3D view region. Called lazily from render() when the region size changes.
+void DoomRenderPass::ensureSceneTargets(uint32_t w, uint32_t h) {
+    if (w == m_sceneW && h == m_sceneH && m_sceneTex.gpuTexture) return;
+    IGpu& gpu = Renderer::GetGpu();
+    if (m_sceneTex.gpuTexture)   { gpu.releaseTexture(m_sceneTex.gpuTexture);   m_sceneTex.gpuTexture   = 0; }
+    if (m_sceneDepth.gpuTexture) { gpu.releaseTexture(m_sceneDepth.gpuTexture); m_sceneDepth.gpuTexture = 0; }
+    if (!w || !h) { m_sceneW = m_sceneH = 0; return; }
+
+    GpuTextureCreateInfo c{};
+    c.width = w; c.height = h; c.depthOrLayers = 1; c.numLevels = 1;
+    c.format = GpuTextureFormat::R8G8B8A8_Unorm;
+    c.sampleCount = GpuSampleCount::x1;
+    c.usage = GpuTextureUsage::ColorTarget | GpuTextureUsage::Sampler;
+    m_sceneTex.gpuTexture = gpu.createTexture(c);
+    m_sceneTex.gpuSampler = Renderer::GetSampler(ScaleMode::Linear);
+    m_sceneTex.width = (int)w; m_sceneTex.height = (int)h;
+
+    GpuTextureCreateInfo d{};
+    d.width = w; d.height = h; d.depthOrLayers = 1; d.numLevels = 1;
+    d.format = GpuTextureFormat::D32_Float;
+    d.sampleCount = GpuSampleCount::x1;
+    d.usage = GpuTextureUsage::DepthStencilTarget;
+    m_sceneDepth.gpuTexture = gpu.createTexture(d);
+
+    m_sceneW = w; m_sceneH = h;
+}
+
 bool DoomRenderPass::init(GpuTextureFormat swapchainFormat,
                           uint32_t surfaceWidth, uint32_t surfaceHeight,
                           std::string name, bool logInit,
@@ -204,6 +232,27 @@ bool DoomRenderPass::init(GpuTextureFormat swapchainFormat,
         m_skyPipeline = gpu.createGraphicsPipeline(spci);
     }
     if (!m_skyPipeline) LOG_WARNING("DoomRenderPass: sky pipeline unavailable (sky disabled)");
+
+    // Bloom composite pipeline: fullscreen triangle sampling the offscreen scene,
+    // adding a glow. Same depth attachment as the pass (triangle at z=0.99999 so
+    // the overlay at z=0 lands on top).
+    Shader blv = AssetHandler::GetShader("assets/shaders/doom_bloom.vert");
+    Shader blf = AssetHandler::GetShader("assets/shaders/doom_bloom.frag");
+    if (blv.gpuShader && blf.gpuShader) {
+        GpuGraphicsPipelineCreateInfo bp{};
+        bp.vertexShader      = blv.gpuShader;
+        bp.fragmentShader    = blf.gpuShader;
+        bp.attributeCount    = 0;
+        bp.bindingCount      = 0;
+        bp.fillMode          = GpuFillMode::Fill;
+        bp.cullMode          = GpuCullMode::None;
+        bp.colorTargetFormat = swapchainFormat;
+        bp.hasDepthTarget    = true;
+        bp.depthTargetFormat = GpuTextureFormat::D32_Float;
+        bp.sampleCount       = m_sampleCount;
+        m_bloomPipeline = gpu.createGraphicsPipeline(bp);
+    }
+    if (!m_bloomPipeline) LOG_WARNING("DoomRenderPass: bloom pipeline unavailable (bloom disabled)");
 
     // Sprite pipeline: same vertex layout as walls (pos+uv+shade), alpha-tested
     // (discard in shader), depth test+write on, no culling (billboards).
@@ -386,67 +435,124 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
     prepareSprites(-std::sin(yaw), std::cos(yaw));
     prepareOverlay(ox, oy, boxW, boxH, viewH, W, H);
 
-    const bool shouldResolve = (renderTargetResolve != 0);
-    GpuColorTargetInfo ct{};
-    ct.texture        = targetTexture;
-    ct.resolveTexture = renderTargetResolve;
-    ct.loadOp         = color_target_info_loadop;
-    ct.storeOp        = shouldResolve ? GpuStoreOp::Resolve : GpuStoreOp::Store;
-    ct.clearR = color_target_clear_r; ct.clearG = color_target_clear_g;
-    ct.clearB = color_target_clear_b; ct.clearA = color_target_clear_a;
+    // Draw the 3D scene (sky, world, sprites) into the bound render pass. Used by
+    // both the direct path and the offscreen (bloom) path.
+    auto drawScene = [&](GpuRenderPassHandle rp) {
+        // Sky background first (fullscreen); world draws over it.
+        GpuTextureHandle skyTex = m_skyPipeline ? uploadTexture(DG_KIND_WALL, DG_SkyTextureId()) : 0;
+        if (skyTex) {
+            struct { float yawTurns, uSpan, vScale, vBias; } sp;
+            sp.yawTurns = yaw / (float)(M_PI * 0.5);   // one sky width per 90°
+            sp.uSpan    = hFov / (float)(M_PI * 0.5);  // texture-widths across the screen
+            sp.vScale   = 1.0f;
+            sp.vBias    = 0.0f;
+            gpu.bindGraphicsPipeline(rp, m_skyPipeline);
+            GpuTextureSamplerBinding sky{ skyTex, g_wallSamplerSmooth };
+            gpu.bindFragmentSamplers(rp, 0, &sky, 1);
+            gpu.pushFragmentUniformData(cmdBuffer, 0, &sp, sizeof(sp));
+            gpu.drawPrimitives(rp, 3, 1, 0, 0);
+        }
 
-    GpuDepthStencilTargetInfo dt{};
-    dt.texture    = renderTargetDepth ? renderTargetDepth : m_depth_texture.gpuTexture;
-    dt.loadOp     = GpuLoadOp::Clear;
-    dt.storeOp    = GpuStoreOp::Store;
-    dt.clearDepth = 1.0f;
+        gpu.bindGraphicsPipeline(rp, m_pipeline);
+        gpu.pushVertexUniformData(cmdBuffer, 0, &vpu, sizeof(vpu));
+        float flash = DG_FlashLevel();
+        gpu.pushFragmentUniformData(cmdBuffer, 0, &flash, sizeof(flash));
+        GpuBufferBinding vb{ m_vertexBuffer, 0 };
+        gpu.bindVertexBuffers(rp, 0, &vb, 1);
 
-    GpuRenderPassHandle rp = gpu.beginRenderPass(cmdBuffer, &ct, 1, &dt);
-    render_pass = rp;
-    gpu.setViewport(rp, ox, oy, boxW, viewH, 0.0f, 1.0f);
+        // One draw per (kind, texture) group — walls and flats share the pipeline.
+        int groups = DG_DrawGroupCount();
+        for (int g = 0; g < groups; g++) {
+            int kind, texid, first, count;
+            DG_DrawGroup(g, &kind, &texid, &first, &count);
+            if (count <= 0) continue;
+            GpuTextureHandle tex = uploadTexture(kind, texid);
+            if (!tex) continue;
+            GpuTextureSamplerBinding tsb{ tex, wallSampler() };
+            gpu.bindFragmentSamplers(rp, 0, &tsb, 1);
+            gpu.drawPrimitives(rp, (uint32_t)count, 1, (uint32_t)first, 0);
+        }
 
-    // Sky background first (fullscreen, no depth interaction); world draws over it.
-    GpuTextureHandle skyTex = m_skyPipeline ? uploadTexture(DG_KIND_WALL, DG_SkyTextureId()) : 0;
-    if (skyTex) {
-        struct { float yawTurns, uSpan, vScale, vBias; } sp;
-        sp.yawTurns = yaw / (float)(M_PI * 0.5);   // one sky width per 90°
-        sp.uSpan    = hFov / (float)(M_PI * 0.5);  // texture-widths across the screen
-        sp.vScale   = 1.0f;                          // maps view-y 0..1 into sky v (tune later)
-        sp.vBias    = 0.0f;
-        gpu.bindGraphicsPipeline(rp, m_skyPipeline);
-        GpuTextureSamplerBinding sky{ skyTex, g_wallSamplerSmooth };
-        gpu.bindFragmentSamplers(rp, 0, &sky, 1);
-        gpu.pushFragmentUniformData(cmdBuffer, 0, &sp, sizeof(sp));
+        // Sprites (billboards) after the world so they depth-test against it.
+        drawSprites(cmdBuffer, rp, &vpu, sizeof(vpu));
+    };
+
+    // Bloom only in Modern (smooth) mode; Authentic+ stays crisp via the direct
+    // single-pass path (byte-identical to before). MSAA is off in this app, so the
+    // resolve path is only exercised by the direct branch for safety.
+    const int  iBoxW = (int)(boxW + 0.5f), iViewH = (int)(viewH + 0.5f);
+    bool bloom = g_wallSmooth && m_bloomPipeline && iBoxW > 0 && iViewH > 0;
+    if (bloom) ensureSceneTargets((uint32_t)iBoxW, (uint32_t)iViewH);
+    bloom = bloom && m_sceneTex.gpuTexture && m_sceneDepth.gpuTexture;
+
+    if (bloom) {
+        // Pass A: 3D scene → offscreen sceneTex (its own full viewport).
+        GpuColorTargetInfo sct{};
+        sct.texture = m_sceneTex.gpuTexture;
+        sct.loadOp  = GpuLoadOp::Clear; sct.storeOp = GpuStoreOp::Store;
+        sct.clearR = color_target_clear_r; sct.clearG = color_target_clear_g;
+        sct.clearB = color_target_clear_b; sct.clearA = color_target_clear_a;
+        GpuDepthStencilTargetInfo sdt{};
+        sdt.texture = m_sceneDepth.gpuTexture;
+        sdt.loadOp = GpuLoadOp::Clear; sdt.storeOp = GpuStoreOp::Store; sdt.clearDepth = 1.0f;
+        GpuRenderPassHandle sp = gpu.beginRenderPass(cmdBuffer, &sct, 1, &sdt);
+        render_pass = sp;
+        gpu.setViewport(sp, 0.0f, 0.0f, (float)iBoxW, (float)iViewH, 0.0f, 1.0f);
+        drawScene(sp);
+        gpu.endRenderPass(sp);
+
+        // Pass B: composite (scene + glow) then overlay → real target.
+        GpuColorTargetInfo ct{};
+        ct.texture = targetTexture;
+        ct.loadOp  = color_target_info_loadop;   // Load: keep the software HUD blit
+        ct.storeOp = GpuStoreOp::Store;
+        ct.clearR = color_target_clear_r; ct.clearG = color_target_clear_g;
+        ct.clearB = color_target_clear_b; ct.clearA = color_target_clear_a;
+        GpuDepthStencilTargetInfo dt{};
+        dt.texture = renderTargetDepth ? renderTargetDepth : m_depth_texture.gpuTexture;
+        dt.loadOp = GpuLoadOp::Clear; dt.storeOp = GpuStoreOp::Store; dt.clearDepth = 1.0f;
+        GpuRenderPassHandle rp = gpu.beginRenderPass(cmdBuffer, &ct, 1, &dt);
+        render_pass = rp;
+        gpu.setViewport(rp, ox, oy, boxW, viewH, 0.0f, 1.0f);
+
+        gpu.bindGraphicsPipeline(rp, m_bloomPipeline);
+        // Glow amount + brightness cutoff, env-overridable so the look can be tuned
+        // without rebuilding (DOOM_BLOOM strength, DOOM_BLOOM_THRESH cutoff).
+        static const float bStr = getenv("DOOM_BLOOM")       ? (float)atof(getenv("DOOM_BLOOM"))       : 1.8f;
+        static const float bThr = getenv("DOOM_BLOOM_THRESH") ? (float)atof(getenv("DOOM_BLOOM_THRESH")) : 0.45f;
+        struct { float texelX, texelY, strength, threshold; } bpar;
+        bpar.texelX = 1.0f / (float)iBoxW; bpar.texelY = 1.0f / (float)iViewH;
+        bpar.strength = bStr; bpar.threshold = bThr;
+        GpuTextureSamplerBinding scn{ m_sceneTex.gpuTexture, m_sceneTex.gpuSampler };
+        gpu.bindFragmentSamplers(rp, 0, &scn, 1);
+        gpu.pushFragmentUniformData(cmdBuffer, 0, &bpar, sizeof(bpar));
         gpu.drawPrimitives(rp, 3, 1, 0, 0);
+
+        drawOverlay(rp);
+        gpu.endRenderPass(rp);
+    } else {
+        const bool shouldResolve = (renderTargetResolve != 0);
+        GpuColorTargetInfo ct{};
+        ct.texture        = targetTexture;
+        ct.resolveTexture = renderTargetResolve;
+        ct.loadOp         = color_target_info_loadop;
+        ct.storeOp        = shouldResolve ? GpuStoreOp::Resolve : GpuStoreOp::Store;
+        ct.clearR = color_target_clear_r; ct.clearG = color_target_clear_g;
+        ct.clearB = color_target_clear_b; ct.clearA = color_target_clear_a;
+
+        GpuDepthStencilTargetInfo dt{};
+        dt.texture    = renderTargetDepth ? renderTargetDepth : m_depth_texture.gpuTexture;
+        dt.loadOp     = GpuLoadOp::Clear;
+        dt.storeOp    = GpuStoreOp::Store;
+        dt.clearDepth = 1.0f;
+
+        GpuRenderPassHandle rp = gpu.beginRenderPass(cmdBuffer, &ct, 1, &dt);
+        render_pass = rp;
+        gpu.setViewport(rp, ox, oy, boxW, viewH, 0.0f, 1.0f);
+        drawScene(rp);
+        drawOverlay(rp);
+        gpu.endRenderPass(rp);
     }
-
-    gpu.bindGraphicsPipeline(rp, m_pipeline);
-    gpu.pushVertexUniformData(cmdBuffer, 0, &vpu, sizeof(vpu));
-    float flash = DG_FlashLevel();
-    gpu.pushFragmentUniformData(cmdBuffer, 0, &flash, sizeof(flash));
-    GpuBufferBinding vb{ m_vertexBuffer, 0 };
-    gpu.bindVertexBuffers(rp, 0, &vb, 1);
-
-    // One draw per (kind, texture) group — walls and flats share the pipeline.
-    int groups = DG_DrawGroupCount();
-    for (int g = 0; g < groups; g++) {
-        int kind, texid, first, count;
-        DG_DrawGroup(g, &kind, &texid, &first, &count);
-        if (count <= 0) continue;
-        GpuTextureHandle tex = uploadTexture(kind, texid);
-        if (!tex) continue;
-        GpuTextureSamplerBinding tsb{ tex, wallSampler() };
-        gpu.bindFragmentSamplers(rp, 0, &tsb, 1);
-        gpu.drawPrimitives(rp, (uint32_t)count, 1, (uint32_t)first, 0);
-    }
-
-    // Sprites (billboards) after the world so they depth-test against it.
-    drawSprites(cmdBuffer, rp, &vpu, sizeof(vpu));
-
-    // Player weapon sprite last, as a screen-space overlay on top of everything.
-    drawOverlay(rp);
-
-    gpu.endRenderPass(rp);
 }
 
 namespace {
@@ -660,5 +766,8 @@ void DoomRenderPass::release(bool /*logRelease*/) {
     IGpu& gpu = Renderer::GetGpu();
     if (m_vertexBuffer)             { gpu.releaseBuffer(m_vertexBuffer); m_vertexBuffer = 0; }
     if (m_depth_texture.gpuTexture) { gpu.releaseTexture(m_depth_texture.gpuTexture); m_depth_texture.gpuTexture = 0; }
+    if (m_sceneTex.gpuTexture)      { gpu.releaseTexture(m_sceneTex.gpuTexture);   m_sceneTex.gpuTexture   = 0; }
+    if (m_sceneDepth.gpuTexture)    { gpu.releaseTexture(m_sceneDepth.gpuTexture); m_sceneDepth.gpuTexture = 0; }
+    m_sceneW = m_sceneH = 0;
     m_pipeline = 0;
 }

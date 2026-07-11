@@ -43,6 +43,15 @@ private:
 
     GpuGraphicsPipelineHandle m_skyPipeline = 0;    // fullscreen sky background
 
+    // Bloom (Modern mode): the 3D scene renders into an offscreen colour texture,
+    // then a fullscreen pass adds a glow from its bright regions and composites it
+    // into the real target (the HUD/weapon/crosshair overlay stays crisp on top).
+    GpuGraphicsPipelineHandle m_bloomPipeline = 0;
+    TextureAsset    m_sceneTex;                       // offscreen 3D scene (view-region sized)
+    TextureAsset    m_sceneDepth;                     // depth for the offscreen scene pass
+    uint32_t        m_sceneW = 0, m_sceneH = 0;
+    void ensureSceneTargets(uint32_t w, uint32_t h); // (re)create scene tex+depth on size change
+
     // Sprites (billboards): rebuilt + re-uploaded each frame.
     GpuGraphicsPipelineHandle m_spritePipeline = 0;
     GpuBufferHandle m_spriteVB = 0;
