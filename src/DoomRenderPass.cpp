@@ -485,13 +485,18 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
         if (skyTex) {
             static const float skyVScale = getenv("DOOM_SKY_VSCALE") ? (float)atof(getenv("DOOM_SKY_VSCALE")) : 0.5f;
             static const float skyVBias  = getenv("DOOM_SKY_VBIAS")  ? (float)atof(getenv("DOOM_SKY_VBIAS"))  : 0.5f;
-            struct { float yawTurns, uSpan, pitch, vFov, vScale, vBias; } sp;
-            sp.yawTurns = yaw / (float)(M_PI * 0.5);   // one sky width per 90°
-            sp.uSpan    = hFov / (float)(M_PI * 0.5);  // texture-widths across the screen
-            sp.pitch    = pitch;
-            sp.vFov     = vFov;
-            sp.vScale   = skyVScale;
-            sp.vBias    = skyVBias;
+            static const float skyHaze   = getenv("DOOM_SKY_HAZE")   ? (float)atof(getenv("DOOM_SKY_HAZE"))   : 0.5f;
+            // Dome sky: per-pixel ray reconstruction needs yaw/pitch + the view
+            // frustum half-extents (tan of half-FOV).
+            struct { float yaw, pitch, tanH, tanV, vScale, vBias, haze, _pad; } sp;
+            sp.yaw   = yaw;
+            sp.pitch = pitch;
+            sp.tanH  = std::tan(hFov * 0.5f);
+            sp.tanV  = std::tan(vFov * 0.5f);
+            sp.vScale = skyVScale;
+            sp.vBias  = skyVBias;
+            sp.haze   = skyHaze;
+            sp._pad   = 0.0f;
             gpu.bindGraphicsPipeline(rp, m_skyPipeline);
             GpuTextureSamplerBinding sky{ skyTex, g_wallSamplerSmooth };
             gpu.bindFragmentSamplers(rp, 0, &sky, 1);
