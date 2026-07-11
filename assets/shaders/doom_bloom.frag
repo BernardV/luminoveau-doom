@@ -58,11 +58,13 @@ void main() {
     // but post-bloom highlights don't harshly clip).
     if (p.tonemap > 0.0) col = mix(col, aces(col), p.tonemap);
 
-    // Vignette: darken toward the corners.
+    // Vignette: a subtle darkening toward the extreme corners only. Kept gentle so
+    // it doesn't frame the (now full-window, wide) view with dark side bands.
     if (p.vignette > 0.0) {
-        vec2 d = v_uv - 0.5;
-        float v = smoothstep(0.8, 0.2, dot(d, d) * p.vignette);
-        col *= mix(1.0, v, 0.6);
+        vec2  d  = v_uv - 0.5;
+        float r2 = dot(d, d);                          // 0 centre .. 0.5 corner
+        float v  = smoothstep(0.5, 0.18, r2 * p.vignette);
+        col *= mix(1.0, v, 0.3);
     }
 
     out_color = vec4(col, 1.0);

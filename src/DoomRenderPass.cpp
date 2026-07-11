@@ -425,10 +425,12 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
             createDepth(fb->width, fb->height);
     }
 
-    // Match the software view region so the GPU 3D lines up with (and covers)
-    // Doom's own 4:3-letterboxed view — main.cpp blits the 320x200 image into a
-    // 4:3 box centred in the window, with the 32px status bar in its bottom
-    // 32/200. The 3D view is the top 168/200 of that box.
+    // The GPU 3D world fills the WHOLE window (no letterbox). The software HUD /
+    // statusbar / menu stays in a 4:3 box centred in the window (main.cpp blits it
+    // there); the box is also where the weapon/message overlay is mapped, so we
+    // still compute it. Widescreen is "Hor+": keep the classic vertical FOV (from
+    // the 4:3, 168/200 view) constant and widen the horizontal FOV with the window
+    // aspect, so you see more to the sides on a wide screen, not a stretched image.
     const float W = (float)Window::GetPhysicalWidth();
     const float H = (float)Window::GetPhysicalHeight();
     const float target = 4.0f / 3.0f;
@@ -437,12 +439,13 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
     else                { boxW = W; boxH = W / target; }
     const float ox = (W - boxW) * 0.5f;
     const float oy = (H - boxH) * 0.5f;
-    const float viewH = boxH * (168.0f / 200.0f);   // 3D view height (excl. status bar)
+    const float viewH = boxH * (168.0f / 200.0f);   // 4:3-box 3D height, for overlay mapping
 
-    const float aspect = boxW / viewH;
-    const float hFov = glm::radians(90.0f);
-    const float vFov = 2.0f * std::atan(std::tan(hFov * 0.5f) / (aspect > 0 ? aspect : 1.0f));
-    glm::mat4 proj = glm::perspectiveLH_ZO(vFov, aspect, 1.0f, 20000.0f);
+    const float refAspect = (4.0f / 3.0f) / (168.0f / 200.0f);   // classic view aspect ~1.587
+    const float vFov = 2.0f * std::atan(std::tan(glm::radians(90.0f) * 0.5f) / refAspect);
+    const float fullAspect = (H > 0.0f) ? (W / H) : 1.0f;
+    const float hFov = 2.0f * std::atan(std::tan(vFov * 0.5f) * fullAspect);   // Hor+ widescreen
+    glm::mat4 proj = glm::perspectiveLH_ZO(vFov, fullAspect, 1.0f, 20000.0f);
     // Vertex uniform: MVP + camera eye (for distance-based lighting in the shader).
     struct { glm::mat4 mvp; glm::vec4 eye; } vpu;
     vpu.mvp = proj * view;
@@ -454,13 +457,18 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
     struct LightUBO {
         float posRad[DG_MAX_LIGHTS][4];   // xyz world pos, w radius
         float color [DG_MAX_LIGHTS][4];   // rgb colour
-        float flash; int count; float authentic; float _pad;
+        float flash; int count; float authentic; float intensity;
     } lightUBO;
     std::memset(&lightUBO, 0, sizeof(lightUBO));
     // Doom colormap-style light banding (opt-in DOOM_COLORMAP=1): quantize the
     // brightness into discrete steps for the vanilla stepped-light look.
     static const float authentic = getenv("DOOM_COLORMAP") ? 1.0f : 0.0f;
     lightUBO.authentic = authentic;
+    // Overall dynamic-light strength (env-tunable). Kept gentle so lamps softly
+    // light nearby walls rather than blowing them out.
+    static const float lightIntensity = getenv("DOOM_LIGHT_INTENSITY")
+        ? (float)atof(getenv("DOOM_LIGHT_INTENSITY")) : 0.5f;
+    lightUBO.intensity = lightIntensity;
     int nl = DG_LightCount();
     if (nl > DG_MAX_LIGHTS) nl = DG_MAX_LIGHTS;
     for (int i = 0; i < nl; i++) {
@@ -529,14 +537,15 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
 
     // Bloom only in Modern (smooth) mode; Authentic+ stays crisp via the direct
     // single-pass path (byte-identical to before). MSAA is off in this app, so the
-    // resolve path is only exercised by the direct branch for safety.
-    const int  iBoxW = (int)(boxW + 0.5f), iViewH = (int)(viewH + 0.5f);
-    bool bloom = g_wallSmooth && m_bloomPipeline && iBoxW > 0 && iViewH > 0;
-    if (bloom) ensureSceneTargets((uint32_t)iBoxW, (uint32_t)iViewH);
+    // resolve path is only exercised by the direct branch for safety. The 3D scene
+    // fills the whole window, so the offscreen scene target is window-sized.
+    const int  iFullW = (int)(W + 0.5f), iFullH = (int)(H + 0.5f);
+    bool bloom = g_wallSmooth && m_bloomPipeline && iFullW > 0 && iFullH > 0;
+    if (bloom) ensureSceneTargets((uint32_t)iFullW, (uint32_t)iFullH);
     bloom = bloom && m_sceneTex.gpuTexture && m_sceneDepth.gpuTexture;
 
     if (bloom) {
-        // Pass A: 3D scene → offscreen sceneTex (its own full viewport).
+        // Pass A: 3D scene → offscreen sceneTex (full window).
         GpuColorTargetInfo sct{};
         sct.texture = m_sceneTex.gpuTexture;
         sct.loadOp  = GpuLoadOp::Clear; sct.storeOp = GpuStoreOp::Store;
@@ -547,7 +556,7 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
         sdt.loadOp = GpuLoadOp::Clear; sdt.storeOp = GpuStoreOp::Store; sdt.clearDepth = 1.0f;
         GpuRenderPassHandle sp = gpu.beginRenderPass(cmdBuffer, &sct, 1, &sdt);
         render_pass = sp;
-        gpu.setViewport(sp, 0.0f, 0.0f, (float)iBoxW, (float)iViewH, 0.0f, 1.0f);
+        gpu.setViewport(sp, 0.0f, 0.0f, W, H, 0.0f, 1.0f);
         drawScene(sp);
         gpu.endRenderPass(sp);
 
@@ -563,17 +572,17 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
         dt.loadOp = GpuLoadOp::Clear; dt.storeOp = GpuStoreOp::Store; dt.clearDepth = 1.0f;
         GpuRenderPassHandle rp = gpu.beginRenderPass(cmdBuffer, &ct, 1, &dt);
         render_pass = rp;
-        gpu.setViewport(rp, ox, oy, boxW, viewH, 0.0f, 1.0f);
+        gpu.setViewport(rp, 0.0f, 0.0f, W, H, 0.0f, 1.0f);
 
         gpu.bindGraphicsPipeline(rp, m_bloomPipeline);
         // Glow amount + brightness cutoff, env-overridable so the look can be tuned
         // without rebuilding (DOOM_BLOOM strength, DOOM_BLOOM_THRESH cutoff).
         static const float bStr = getenv("DOOM_BLOOM")        ? (float)atof(getenv("DOOM_BLOOM"))        : 1.8f;
         static const float bThr = getenv("DOOM_BLOOM_THRESH") ? (float)atof(getenv("DOOM_BLOOM_THRESH")) : 0.45f;
-        static const float bVig = getenv("DOOM_VIGNETTE")     ? (float)atof(getenv("DOOM_VIGNETTE"))     : 1.1f;
+        static const float bVig = getenv("DOOM_VIGNETTE")     ? (float)atof(getenv("DOOM_VIGNETTE"))     : 0.8f;
         static const float bTon = getenv("DOOM_TONEMAP")      ? (float)atof(getenv("DOOM_TONEMAP"))      : 0.35f;
         struct { float texelX, texelY, strength, threshold, vignette, tonemap; } bpar;
-        bpar.texelX = 1.0f / (float)iBoxW; bpar.texelY = 1.0f / (float)iViewH;
+        bpar.texelX = 1.0f / W; bpar.texelY = 1.0f / H;
         bpar.strength = bStr; bpar.threshold = bThr;
         bpar.vignette = bVig; bpar.tonemap = bTon;
         GpuTextureSamplerBinding scn{ m_sceneTex.gpuTexture, m_sceneTex.gpuSampler };
@@ -604,9 +613,9 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
 
         GpuRenderPassHandle rp = gpu.beginRenderPass(cmdBuffer, &ct, 1, &dt);
         render_pass = rp;
-        gpu.setViewport(rp, ox, oy, boxW, viewH, 0.0f, 1.0f);
+        gpu.setViewport(rp, 0.0f, 0.0f, W, H, 0.0f, 1.0f);   // full-window 3D
         drawScene(rp);
-        gpu.setViewport(rp, 0.0f, 0.0f, W, H, 0.0f, 1.0f);   // full-window for the overlay (aspect-correct)
+        gpu.setViewport(rp, 0.0f, 0.0f, W, H, 0.0f, 1.0f);   // overlay (same full-window space)
         drawOverlay(rp);
         gpu.endRenderPass(rp);
     }
@@ -718,8 +727,7 @@ void DoomRenderPass::prepareOverlay(float ox, float oy, float boxW, float boxH,
     // toNdc is correct at any aspect), so the crosshair is centred on the 3D
     // view's centre — the aim direction — expressed in full-window NDC, not (0,0).
     {
-        float ccx, ccy;
-        toNdc(160.0f, 84.0f, ccx, ccy);           // 3D-view centre (Doom 320x168/2)
+        float ccx = 0.0f, ccy = 0.0f;              // full-window 3D centre = the aim point
         const float ar   = W / H;                  // aspect: keep ticks square on screen
         const float gap  = 0.006f;                 // half-size of the centre hole (x)
         const float len  = 0.013f;                 // tick length (x)

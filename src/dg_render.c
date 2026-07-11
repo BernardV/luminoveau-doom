@@ -511,9 +511,13 @@ static void gather_lights(void) {
         L.y = FX(mo->z) + FX(mo->height) * 0.5f;
         float dx = L.x - cx, dz = L.z - cz;
         L.dist2 = dx*dx + dz*dz;
-        // Cull exactly where the shader falloff reaches zero (d >= rad), so a light
-        // entering/leaving the set contributes ~0 there — no pop.
-        if (L.dist2 > L.rad * L.rad) continue;
+        // Cull on CAMERA distance, but generously: the lamp lights its surrounding
+        // walls by wall→lamp distance (always, consistently), so it must stay in the
+        // set well beyond its own radius — otherwise its lit walls blink off as the
+        // player walks away. A large margin keeps the light on until it's genuinely
+        // off-screen; distant walls get ~0 anyway via the wall→lamp falloff.
+        float cull = L.rad + 900.0f;
+        if (L.dist2 > cull * cull) continue;
 
         if (g_lightCount < DG_MAX_LIGHTS) {
             g_lights[g_lightCount++] = L;
