@@ -349,6 +349,7 @@ static void PollTouch()
     bool b2 = vc.IsButtonPressed(2), b3 = vc.IsButtonPressed(3);
 
     if (ui) {
+        vc.ConsumeLookDelta();   // drain look so it doesn't jump on resume
         EdgeKey(up,   tMUp,  DG_KEY_UPARROW);
         EdgeKey(down, tMDn,  DG_KEY_DOWNARROW);
         EdgeKey(b0,   tEnter, DG_KEY_ENTER);
@@ -361,11 +362,25 @@ static void PollTouch()
     EdgeKey(false, tMUp, DG_KEY_UPARROW); EdgeKey(false, tMDn, DG_KEY_DOWNARROW);
     EdgeKey(false, tEnter, DG_KEY_ENTER);
 
-    // Move with the stick; strafe is handled by A/D-style side keys.
+    // Left disc: forward/back + strafe (left/right).
     EdgeKey(up,    tFwd,  DG_KEY_UPARROW);
     EdgeKey(down,  tBack, DG_KEY_DOWNARROW);
     EdgeKey(left,  tStrL, ',');
     EdgeKey(right, tStrR, '.');
+
+    // Right-half drag = look: horizontal turns (Doom ev_mouse), vertical pitches
+    // the GPU camera (renderer-only). Sensitivities env-overridable.
+    static const float TOUCH_TURN = getenv("DOOM_TOUCH_TURN") ? (float)atof(getenv("DOOM_TOUCH_TURN")) : 0.9f;
+    static const float TOUCH_LOOK = getenv("DOOM_TOUCH_LOOK") ? (float)atof(getenv("DOOM_TOUCH_LOOK")) : 0.006f;
+    vf2d look = vc.ConsumeLookDelta();
+    if (look.x != 0.0f) DG_MouseEvent(g_mouseButtons, (int)(look.x * TOUCH_TURN), 0);
+    if (look.y != 0.0f && g_gpuMode) {
+        g_pitch -= look.y * TOUCH_LOOK;
+        const float lim = 1.30f;
+        if (g_pitch >  lim) g_pitch =  lim;
+        if (g_pitch < -lim) g_pitch = -lim;
+        DG_SetPitch(g_pitch);
+    }
 
     EdgeKey(b0, tFire, DG_KEY_RCTRL);
     EdgeKey(b1, tUse,  ' ');
@@ -449,11 +464,18 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
     // on whether a menu/UI is up, so it's released when the user needs the cursor.
 
     // On-screen touch controls: only when a touch device is present (mobile/web),
-    // or forced with DOOM_TOUCH=1. Left joystick + 4 buttons (fire/use/weapon/menu).
+    // or forced with DOOM_TOUCH=1. Twin-stick: left disc = move/strafe, right-half
+    // drag = look (turn + pitch), 4 buttons (fire/use/weapon/menu) over the drag zone.
     if (TouchAvailable()) {
         auto& vc = Input::GetVirtualControls();
+        vc.SetUsePhysicalCoords(true);   // this app renders in physical px (HiDPI-correct)
         vc.SetButtonCount(4);
         vc.SetJoystickMode(VirtualControls::JoystickMode::RELATIVE);
+        vc.SetLookRegionEnabled(true);   // right-side drag → camera turn/pitch
+        vc.SetButtonLabel(0, "FIRE");
+        vc.SetButtonLabel(1, "USE");
+        vc.SetButtonLabel(2, "WPN");
+        vc.SetButtonLabel(3, "MENU");
         vc.SetEnabled(true);
         g_touch = true;
         LOG_INFO("Touch controls enabled");
@@ -532,13 +554,16 @@ Lumi::Result AppIterate(void* /*appstate*/)
         Draw::Texture(g_screen, {x, y}, {dstW, dstH});
     }
 
-    // On-screen touch controls. VirtualControls renders AND hit-tests in the
-    // engine's logical coordinate space (both use Window::GetWidth/Height), so
-    // they stay mutually consistent. On a HiDPI desktop where this app otherwise
-    // draws in physical pixels they appear in the logical (top-left) quadrant —
-    // a cosmetic quirk of the DOOM_TOUCH desktop test; on real touch targets
-    // (mobile/web, logical == physical) they anchor to the corners as intended.
-    if (g_touch) Input::GetVirtualControls().Render();
+    // On-screen touch controls. Route to the "hud" renderToScreen layer in sole
+    // mode so the disc/buttons composite OVER the full-window GPU 3D (the primary
+    // framebuffer), just like the software statusbar — otherwise the doom3d pass
+    // (attached last) draws over them. Uses physical coords (SetUsePhysicalCoords)
+    // so it renders + hit-tests in the same space as the scene.
+    if (g_touch) {
+        if (g_sole) Draw::SetTargetRenderPass("hud");
+        Input::GetVirtualControls().Render();
+        if (g_sole) Draw::SetTargetRenderPass("2dsprites");
+    }
 
     Window::EndFrame();
     return Lumi::Result::Continue;

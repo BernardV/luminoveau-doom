@@ -4,6 +4,7 @@
 #include "math/vectors.h"
 #include "assets/texture/texture.h"
 #include <vector>
+#include <string>
 
 /**
  * @brief Manages virtual onscreen controls for touch devices
@@ -28,6 +29,7 @@ public:
         bool wasPressed;                ///< Press state from the previous frame (for edge detection).
         SDL_FingerID activeFinger;      ///< Finger currently pressing this button, if any.
         TextureAsset *customTexture;    ///< Custom texture, or nullptr to use the default.
+        std::string label;              ///< Optional text label drawn centered on the button.
 
         /**
          * @brief Get the actual screen position of this button
@@ -178,6 +180,45 @@ public:
      */
     void SetButtonTexture(int buttonIndex, TextureAsset *texture);
 
+    /**
+     * @brief Set a text label drawn centered on a button (default font).
+     * @param buttonIndex Index of the button (0-3)
+     * @param label Text to show ("" to clear)
+     */
+    void SetButtonLabel(int buttonIndex, const std::string &label);
+
+    // === Coordinate space ===
+    /**
+     * @brief Draw and hit-test in physical (device) pixels instead of logical.
+     *
+     * VirtualControls defaults to logical coordinates (Window::GetWidth/Height).
+     * If the app renders its 2D scene in physical pixels (e.g. a swapchain-sized
+     * canvas on a HiDPI display), enable this so the controls render and hit-test
+     * in the same space and stay anchored to the real screen corners.
+     * @param usePhysical True → physical pixels; false (default) → logical.
+     */
+    void SetUsePhysicalCoords(bool usePhysical) { m_usePhysicalCoords = usePhysical; }
+
+    // === Look region (right-side drag → camera delta) ===
+    /**
+     * @brief Enable a look/drag region: dragging in the right half of the screen
+     *        (outside any button) produces a per-frame delta, like a second stick
+     *        for camera turn/pitch. Works alongside the left joystick and buttons.
+     * @param enabled True to enable.
+     */
+    void SetLookRegionEnabled(bool enabled) { m_lookEnabled = enabled; }
+
+    /**
+     * @brief Consume the look-drag delta accumulated since the last call.
+     * @return Movement delta (dx, dy) in the active coordinate space; resets to 0.
+     */
+    vf2d ConsumeLookDelta();
+
+    /**
+     * @brief Whether a finger/mouse is currently dragging in the look region.
+     */
+    bool IsLookActive() const { return m_lookActive; }
+
     // === State Queries ===
     /**
      * @brief Get the joystick state
@@ -215,6 +256,19 @@ public:
 private:
     bool m_enabled;
     JoystickMode m_joystickMode;
+
+    // Coordinate space: logical (default) or physical (device) pixels.
+    bool m_usePhysicalCoords = false;
+    float viewW() const;   ///< Active-space window width (logical or physical).
+    float viewH() const;   ///< Active-space window height.
+
+    // Look region (right-side drag → accumulated camera delta).
+    bool m_lookEnabled = false;
+    bool m_lookActive = false;
+    SDL_FingerID m_lookFinger = static_cast<SDL_FingerID>(-1);
+    vf2d m_lookLast{0.0f, 0.0f};
+    vf2d m_lookAccum{0.0f, 0.0f};
+    bool IsInLookRegion(const vf2d &pos) const;   ///< Right half, and look enabled.
 
 #ifdef LUMINOVEAU_WITH_IMGUI
     bool m_showDebugWindow;
