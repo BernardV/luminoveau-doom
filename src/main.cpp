@@ -483,6 +483,7 @@ Lumi::Result AppIterate(void* /*appstate*/)
             prevRelative = wantRelative;
             settle = 0;                 // discard the spurious delta after (re)capture
         }
+        if (const char* fp = getenv("DOOM_PITCH")) { g_pitch = (float)atof(fp); DG_SetPitch(g_pitch); }  // debug: fixed look pitch
         if (!uiActive) {
             vf2d md = Input::GetMouseDelta();
             if (settle < 6) { settle++; md = {0.0f, 0.0f}; }

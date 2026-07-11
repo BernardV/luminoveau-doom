@@ -473,11 +473,15 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
         // Sky background first (fullscreen); world draws over it.
         GpuTextureHandle skyTex = m_skyPipeline ? uploadTexture(DG_KIND_WALL, DG_SkyTextureId()) : 0;
         if (skyTex) {
-            struct { float yawTurns, uSpan, vScale, vBias; } sp;
+            static const float skyVScale = getenv("DOOM_SKY_VSCALE") ? (float)atof(getenv("DOOM_SKY_VSCALE")) : 0.5f;
+            static const float skyVBias  = getenv("DOOM_SKY_VBIAS")  ? (float)atof(getenv("DOOM_SKY_VBIAS"))  : 0.5f;
+            struct { float yawTurns, uSpan, pitch, vFov, vScale, vBias; } sp;
             sp.yawTurns = yaw / (float)(M_PI * 0.5);   // one sky width per 90°
             sp.uSpan    = hFov / (float)(M_PI * 0.5);  // texture-widths across the screen
-            sp.vScale   = 1.0f;
-            sp.vBias    = 0.0f;
+            sp.pitch    = pitch;
+            sp.vFov     = vFov;
+            sp.vScale   = skyVScale;
+            sp.vBias    = skyVBias;
             gpu.bindGraphicsPipeline(rp, m_skyPipeline);
             GpuTextureSamplerBinding sky{ skyTex, g_wallSamplerSmooth };
             gpu.bindFragmentSamplers(rp, 0, &sky, 1);
