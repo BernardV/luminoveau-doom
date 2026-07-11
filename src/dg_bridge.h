@@ -12,6 +12,13 @@ extern "C" {
 #define DG_WIDTH  320
 #define DG_HEIGHT 200
 
+// Fase 7 (GPU is the sole 3D renderer): the software renderer skips the 3D view
+// and clears that region to this palette index; the host maps it to a fully
+// transparent pixel so the GPU 3D shows through and the HUD/menu (drawn after,
+// opaque) composites on top. The 3D view occupies the top DG_VIEW_H rows.
+#define DG_SENTINEL_INDEX 0xFF
+#define DG_VIEW_H         168
+
 // ── Called by the host (main.cpp) ──────────────────────────────────────────
 
 // Run all of Doom's one-time startup (WAD load, renderer init, start title/demo).
@@ -60,6 +67,16 @@ int DG_WorldReady(void);
 // A fullscreen software UI is active (menu / pause / automap / non-level state).
 // Host: show the software render (not GPU 3D) and release the mouse.
 int DG_UIActive(void);
+
+// GPU-sole-renderer mode (Fase 7): the software 3D render is skipped and the GPU
+// is the only 3D renderer, with the software HUD/menu composited on top.
+void DG_SetSoleRenderer(int on);   // host enables/disables
+int  DG_SoleRenderer(void);        // current state
+
+// True when a 3D level view should be drawn by the GPU: in a level and not in the
+// automap. Unlike DG_UIActive this stays true while an in-game menu is up, so the
+// menu gets the GPU 3D as its background (sole mode).
+int DG_Show3D(void);
 
 // Wall geometry as interleaved floats: {x,y,z, u,v, shade} per vertex, triangles
 // (3 verts each), engine space, grouped by texture. *outFloatCount = total floats

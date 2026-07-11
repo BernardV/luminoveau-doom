@@ -69,8 +69,16 @@ void I_FinishUpdate(void)
 {
     int i;
     const byte* src = screens[0];
-    for (i = 0; i < DG_WIDTH * DG_HEIGHT; i++)
-        g_framebuffer[i] = g_palette[src[i]];
+    extern int dg_gpu_active;   // GPU-sole mode: sentinel index → transparent
+    if (dg_gpu_active) {
+        for (i = 0; i < DG_WIDTH * DG_HEIGHT; i++) {
+            byte idx = src[i];
+            g_framebuffer[i] = (idx == DG_SENTINEL_INDEX) ? 0x00000000u : g_palette[idx];
+        }
+    } else {
+        for (i = 0; i < DG_WIDTH * DG_HEIGHT; i++)
+            g_framebuffer[i] = g_palette[src[i]];
+    }
 }
 
 void I_ReadScreen(byte* scr)

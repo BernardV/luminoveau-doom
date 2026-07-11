@@ -30,6 +30,7 @@ static const char rcsid[] = "$Id: r_main.c,v 1.5 1997/02/03 22:45:12 b1 Exp $";
 
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 
 
 #include "doomdef.h"
@@ -39,6 +40,7 @@ static const char rcsid[] = "$Id: r_main.c,v 1.5 1997/02/03 22:45:12 b1 Exp $";
 
 #include "r_local.h"
 #include "r_sky.h"
+#include "v_video.h"    // screens[] (Fase 7 sentinel clear)
 
 
 
@@ -867,9 +869,24 @@ void R_SetupFrame (player_t* player)
 //
 // R_RenderView
 //
+// Fase 7: when the GPU is the sole 3D renderer, skip the software BSP/draw and
+// clear the 3D view region to a sentinel index. The host maps that index to a
+// transparent pixel so the GPU 3D shows through, with the HUD/messages/menu
+// (drawn afterwards) composited opaque on top. R_SetupFrame is kept so the GPU
+// still gets fresh view params (viewx/y/z/angle).
+extern int dg_gpu_active;
+
 void R_RenderPlayerView (player_t* player)
-{	
+{
     R_SetupFrame (player);
+
+    if (dg_gpu_active)
+    {
+	int y;
+	for (y = 0; y < 168; y++)   // DG_VIEW_H: top 168/200 rows = the 3D view
+	    memset (screens[0] + y*SCREENWIDTH, 0xFF /*DG_SENTINEL_INDEX*/, SCREENWIDTH);
+	return;
+    }
 
     // Clear buffers.
     R_ClearClipSegs ();

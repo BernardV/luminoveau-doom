@@ -393,9 +393,17 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
                             GpuTextureHandle   targetTexture,
                             const glm::mat4&   /*camera2d*/) {
     if (!m_pipeline || !DG_WorldReady()) return;
-    // When a menu/pause/automap is up, skip the GPU 3D so the software render
-    // (which draws those overlays) shows through the base blit instead.
-    if (DG_UIActive()) return;
+    if (DG_SoleRenderer()) {
+        // GPU is the only 3D renderer: draw whenever a level view exists (incl.
+        // while an in-game menu is up, so the menu gets a GPU background). The
+        // automap and non-level states fall back to pure software.
+        if (!DG_Show3D()) return;
+    } else {
+        // Legacy path: GPU draws over the software blit, so skip it when a menu/
+        // pause/automap is up and let the software render (with those overlays)
+        // show through instead.
+        if (DG_UIActive()) return;
+    }
     ensureGeometry();
     if (!m_vertexCount || !m_vertexBuffer) return;
 

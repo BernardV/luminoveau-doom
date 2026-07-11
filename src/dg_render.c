@@ -291,6 +291,20 @@ int DG_UIActive(void) {
     return menuactive || paused || automapactive || (gamestate != GS_LEVEL);
 }
 
+// GPU-sole-renderer mode (Fase 7). dg_gpu_active is read by R_RenderPlayerView
+// (r_main.c) to skip the software 3D and by I_FinishUpdate (i_lumi.c) to key the
+// transparent sentinel; the host toggles it here.
+int dg_gpu_active = 0;
+void DG_SetSoleRenderer(int on) { dg_gpu_active = on ? 1 : 0; }
+int  DG_SoleRenderer(void)      { return dg_gpu_active; }
+
+// A 3D level view should be GPU-drawn: in a level, not in the automap. Stays true
+// while an in-game menu/pause is up so the menu composites over the GPU 3D.
+int DG_Show3D(void) {
+    extern boolean automapactive;
+    return (gamestate == GS_LEVEL) && !automapactive && DG_WorldReady();
+}
+
 const float* DG_WorldVertices(int* outFloatCount, unsigned* outVersion) {
     if (!DG_WorldReady()) { *outFloatCount = 0; if (outVersion) *outVersion = g_version; return NULL; }
     // Rebuild every frame: reads live sector floor/ceiling heights (doors, lifts,

@@ -144,6 +144,7 @@ static int   g_mouseButtons = 0;
 static bool  g_gpuMode = false;   // GPU renderer active (enables mouselook)
 static float g_pitch   = 0.0f;    // look up/down angle, radians
 static bool  g_touch   = false;   // on-screen touch controls active (mobile/web)
+static bool  g_sole    = false;   // GPU is the sole 3D renderer (Fase 7)
 
 // Keyboard is polled from SDL_GetKeyboardState each frame (edge-detected) rather
 // than relying on SDL_EVENT_KEY_* callbacks, which proved unreliable on macOS
@@ -425,6 +426,23 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
         }
     }
 
+    // Fase 7 — GPU is the sole 3D renderer (opt-in via DOOM_SOLE=1 for now). Doom
+    // skips its software 3D and clears that region to a transparent sentinel; the
+    // software HUD/menu is composited OVER the GPU 3D via a "hud" render target
+    // (renderToScreen), so the menu background becomes the GPU 3D and the wasted
+    // software 3D render is reclaimed.
+    if (g_gpuMode && getenv("DOOM_SOLE")) {
+        SpriteRenderTargetConfig hudCfg;
+        hudCfg.renderToScreen = true;             // composite over the primary (GPU) framebuffer
+        hudCfg.clearOnLoad    = true;
+        hudCfg.clearColor     = {0, 0, 0, 0};     // transparent — only opaque HUD/menu pixels show
+        hudCfg.blendMode      = BlendMode::SrcAlpha;
+        Renderer::CreateSpriteRenderTarget("hud", hudCfg);
+        DG_SetSoleRenderer(1);
+        g_sole = true;
+        LOG_INFO("GPU sole-renderer mode (Fase 7) enabled");
+    }
+
     // Relative mouse mode (for mouselook) is toggled per-frame in AppIterate based
     // on whether a menu/UI is up, so it's released when the user needs the cursor.
 
@@ -499,7 +517,17 @@ Lumi::Result AppIterate(void* /*appstate*/)
     const float x = (W - dstW) * 0.5f;
     const float y = (H - dstH) * 0.5f;
 
-    Draw::Texture(g_screen, {x, y}, {dstW, dstH});
+    // Blit the 320x200 software image. In sole mode it carries the HUD/menu with a
+    // transparent 3D-view region, and must composite OVER the GPU 3D — so route it
+    // to the "hud" render target (renderToScreen). In legacy mode it's the full
+    // frame drawn under the GPU 3D via the default layer.
+    if (g_sole) {
+        Draw::SetTargetRenderPass("hud");
+        Draw::Texture(g_screen, {x, y}, {dstW, dstH});
+        Draw::SetTargetRenderPass("2dsprites");
+    } else {
+        Draw::Texture(g_screen, {x, y}, {dstW, dstH});
+    }
 
     // On-screen touch controls. VirtualControls renders AND hit-tests in the
     // engine's logical coordinate space (both use Window::GetWidth/Height), so
