@@ -13,7 +13,16 @@ layout(set = 3, binding = 0) uniform BloomParams {
     vec2  texel;      // 1/width, 1/height of scene_tex (blur step size)
     float strength;   // glow amount; 0 disables (crisp mode)
     float threshold;  // brightness cutoff for the bright-pass
+    float vignette;   // corner darkening amount (0 = off)
+    float tonemap;    // filmic highlight rolloff amount (0 = off)
 } p;
+
+// ACES-ish filmic curve — rolls off bright (post-bloom) highlights smoothly
+// instead of hard-clipping to white, for a more cinematic Modern look.
+vec3 aces(vec3 x) {
+    const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
 
 // Keep only the portion of a texel's colour above the brightness threshold.
 vec3 brightPass(vec2 uv) {
@@ -39,5 +48,18 @@ void main() {
         sum += brightPass(v_uv + dir * p.texel * 6.0) * 1.0; wsum += 1.0;   // outer
     }
     vec3 bloom = sum / wsum;
-    out_color = vec4(base + bloom * p.strength, 1.0);
+    vec3 col = base + bloom * p.strength;
+
+    // Filmic rolloff (blend toward the tonemapped curve so base LDR stays close
+    // but post-bloom highlights don't harshly clip).
+    if (p.tonemap > 0.0) col = mix(col, aces(col), p.tonemap);
+
+    // Vignette: darken toward the corners.
+    if (p.vignette > 0.0) {
+        vec2 d = v_uv - 0.5;
+        float v = smoothstep(0.8, 0.2, dot(d, d) * p.vignette);
+        col *= mix(1.0, v, 0.6);
+    }
+
+    out_color = vec4(col, 1.0);
 }

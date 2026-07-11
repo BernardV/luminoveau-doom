@@ -526,11 +526,14 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
         gpu.bindGraphicsPipeline(rp, m_bloomPipeline);
         // Glow amount + brightness cutoff, env-overridable so the look can be tuned
         // without rebuilding (DOOM_BLOOM strength, DOOM_BLOOM_THRESH cutoff).
-        static const float bStr = getenv("DOOM_BLOOM")       ? (float)atof(getenv("DOOM_BLOOM"))       : 1.8f;
+        static const float bStr = getenv("DOOM_BLOOM")        ? (float)atof(getenv("DOOM_BLOOM"))        : 1.8f;
         static const float bThr = getenv("DOOM_BLOOM_THRESH") ? (float)atof(getenv("DOOM_BLOOM_THRESH")) : 0.45f;
-        struct { float texelX, texelY, strength, threshold; } bpar;
+        static const float bVig = getenv("DOOM_VIGNETTE")     ? (float)atof(getenv("DOOM_VIGNETTE"))     : 1.1f;
+        static const float bTon = getenv("DOOM_TONEMAP")      ? (float)atof(getenv("DOOM_TONEMAP"))      : 0.35f;
+        struct { float texelX, texelY, strength, threshold, vignette, tonemap; } bpar;
         bpar.texelX = 1.0f / (float)iBoxW; bpar.texelY = 1.0f / (float)iViewH;
         bpar.strength = bStr; bpar.threshold = bThr;
+        bpar.vignette = bVig; bpar.tonemap = bTon;
         GpuTextureSamplerBinding scn{ m_sceneTex.gpuTexture, m_sceneTex.gpuSampler };
         gpu.bindFragmentSamplers(rp, 0, &scn, 1);
         gpu.pushFragmentUniformData(cmdBuffer, 0, &bpar, sizeof(bpar));
