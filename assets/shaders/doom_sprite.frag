@@ -18,6 +18,7 @@ layout(set = 3, binding = 0) uniform Lighting {
     vec4  lightColor[DG_MAX_LIGHTS];
     float flash;
     int   count;
+    float authentic;
 } u;
 
 vec3 dynamicLights(vec3 p) {
@@ -37,6 +38,7 @@ void main() {
     float dim = clamp(1.25 - v_dist / 2200.0, 0.25, 1.0);
     float flashAdd = u.flash * clamp(1.0 - v_dist / 500.0, 0.0, 1.0);
     float bright = min(v_shade * dim + flashAdd, 1.0);
+    if (u.authentic > 0.5) bright = floor(bright * 16.0 + 0.5) / 16.0;
     vec3 lit = t.rgb * bright + t.rgb * dynamicLights(v_worldpos);
     out_color = vec4(min(lit, vec3(1.0)), 1.0);
 }

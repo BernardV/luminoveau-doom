@@ -444,9 +444,13 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
     struct LightUBO {
         float posRad[DG_MAX_LIGHTS][4];   // xyz world pos, w radius
         float color [DG_MAX_LIGHTS][4];   // rgb colour
-        float flash; int count; float _pad[2];
+        float flash; int count; float authentic; float _pad;
     } lightUBO;
     std::memset(&lightUBO, 0, sizeof(lightUBO));
+    // Doom colormap-style light banding (opt-in DOOM_COLORMAP=1): quantize the
+    // brightness into discrete steps for the vanilla stepped-light look.
+    static const float authentic = getenv("DOOM_COLORMAP") ? 1.0f : 0.0f;
+    lightUBO.authentic = authentic;
     int nl = DG_LightCount();
     if (nl > DG_MAX_LIGHTS) nl = DG_MAX_LIGHTS;
     for (int i = 0; i < nl; i++) {

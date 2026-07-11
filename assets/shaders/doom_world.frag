@@ -20,6 +20,7 @@ layout(set = 3, binding = 0) uniform Lighting {
     vec4  lightColor[DG_MAX_LIGHTS];   // rgb = colour
     float flash;
     int   count;
+    float authentic;   // >0 = Doom colormap-style banded lighting
 } u;
 
 // Sum coloured contribution from the dynamic lights at a world position.
@@ -41,6 +42,8 @@ void main() {
     float dim = clamp(1.25 - v_dist / 2200.0, 0.25, 1.0);
     float flashAdd = u.flash * clamp(1.0 - v_dist / 500.0, 0.0, 1.0);
     float bright = min(v_shade * dim + flashAdd, 1.0);
+    // Authentic+ colormap look: quantize into Doom-like discrete light steps.
+    if (u.authentic > 0.5) bright = floor(bright * 16.0 + 0.5) / 16.0;
     vec3 lit = tex.rgb * bright + tex.rgb * dynamicLights(v_worldpos);
     out_color = vec4(min(lit, vec3(1.0)), 1.0);
 }
