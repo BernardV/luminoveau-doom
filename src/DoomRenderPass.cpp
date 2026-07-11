@@ -576,6 +576,9 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
         gpu.pushFragmentUniformData(cmdBuffer, 0, &bpar, sizeof(bpar));
         gpu.drawPrimitives(rp, 3, 1, 0, 0);
 
+        // Overlay (weapon/crosshair/messages) in a full-window viewport so its
+        // Doom-px→NDC mapping is aspect-correct (the 3D viewport would squish it).
+        gpu.setViewport(rp, 0.0f, 0.0f, W, H, 0.0f, 1.0f);
         drawOverlay(rp);
         gpu.endRenderPass(rp);
     } else {
@@ -598,6 +601,7 @@ void DoomRenderPass::render(GpuCmdBufferHandle cmdBuffer,
         render_pass = rp;
         gpu.setViewport(rp, ox, oy, boxW, viewH, 0.0f, 1.0f);
         drawScene(rp);
+        gpu.setViewport(rp, 0.0f, 0.0f, W, H, 0.0f, 1.0f);   // full-window for the overlay (aspect-correct)
         drawOverlay(rp);
         gpu.endRenderPass(rp);
     }
@@ -704,15 +708,17 @@ void DoomRenderPass::prepareOverlay(float ox, float oy, float boxW, float boxH,
         ny = 1.0f - by / H * 2.0f;
     };
 
-    // Crosshair: a gap cross (four ticks around a centre hole) at NDC (0,0). The
-    // overlay is drawn through the 3D viewport, whose centre (NDC origin) is
-    // exactly the view direction — i.e. where a level shot goes — so it always
-    // sits on the aim point regardless of letterbox/aspect.
+    // Crosshair: a gap cross (four ticks around a centre hole). The overlay is
+    // drawn in a FULL-WINDOW viewport (so the weapon/message px→NDC mapping via
+    // toNdc is correct at any aspect), so the crosshair is centred on the 3D
+    // view's centre — the aim direction — expressed in full-window NDC, not (0,0).
     {
-        const float ar   = boxW / viewH;         // aspect: keep ticks square on screen
-        const float gap  = 0.006f;                // half-size of the centre hole (x)
-        const float len  = 0.013f;                // tick length (x)
-        const float thX  = 0.0022f, thY = thX*ar; // tick thickness
+        float ccx, ccy;
+        toNdc(160.0f, 84.0f, ccx, ccy);           // 3D-view centre (Doom 320x168/2)
+        const float ar   = W / H;                  // aspect: keep ticks square on screen
+        const float gap  = 0.006f;                 // half-size of the centre hole (x)
+        const float len  = 0.013f;                 // tick length (x)
+        const float thX  = 0.0022f, thY = thX*ar;  // tick thickness
         const float gapY = gap*ar,  lenY = len*ar;
         struct { float x0,y0,x1,y1; } bars[4] = {
             {  gap,   -thY,  gap+len,  thY },   // right
@@ -721,7 +727,7 @@ void DoomRenderPass::prepareOverlay(float ox, float oy, float boxW, float boxH,
             { -thX,   -gapY-lenY, thX, -gapY }, // bottom
         };
         for (int b = 0; b < 4; b++) {
-            float x0=bars[b].x0, y0=bars[b].y0, x1=bars[b].x1, y1=bars[b].y1;
+            float x0=ccx+bars[b].x0, y0=ccy+bars[b].y0, x1=ccx+bars[b].x1, y1=ccy+bars[b].y1;
             g_ovlFirst.push_back((int)g_ovlVerts.size()); g_ovlLump.push_back(-1);
             g_ovlVerts.push_back({x0,y0, 0,0}); g_ovlVerts.push_back({x1,y0, 0,0});
             g_ovlVerts.push_back({x1,y1, 0,0}); g_ovlVerts.push_back({x0,y0, 0,0});
