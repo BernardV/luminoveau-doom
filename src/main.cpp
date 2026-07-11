@@ -234,12 +234,19 @@ static void PollGamepad()
     static bool eNext=false, ePrev=false;
     static int  weapon = 1;
 
+    // Sensitivities (env-overridable so they can be dialed in without rebuilding):
+    //   DOOM_GP_TURN  right-stick turn speed   (default 16)
+    //   DOOM_GP_LOOK  right-stick look/pitch    (default 0.04)
+    //   DOOM_GP_MOVET move stick threshold      (default 0.30)
+    static const float TURN = getenv("DOOM_GP_TURN")  ? (float)atof(getenv("DOOM_GP_TURN"))  : 16.0f;
+    static const float LOOK = getenv("DOOM_GP_LOOK")  ? (float)atof(getenv("DOOM_GP_LOOK"))  : 0.04f;
+    static const float T    = getenv("DOOM_GP_MOVET") ? (float)atof(getenv("DOOM_GP_MOVET")) : 0.30f;
+
     const bool ui = DG_UIActive();
     const float lx = axis(SDL_GAMEPAD_AXIS_LEFTX),  ly = axis(SDL_GAMEPAD_AXIS_LEFTY);
     const float rx = axis(SDL_GAMEPAD_AXIS_RIGHTX), ry = axis(SDL_GAMEPAD_AXIS_RIGHTY);
     const float lt = axis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
     const float rt = axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
-    const float T = 0.30f;                    // move threshold (past the deadzone)
 
     if (ui) {
         // Menu navigation: dpad or left stick step through items; A confirms, B/Start exit.
@@ -268,9 +275,9 @@ static void PollGamepad()
     EdgeKey(lx >  T, eStrR, '.');
 
     // Look: right stick → analog turn (Doom's mouse-turn) + renderer pitch.
-    if (rx != 0.0f) DG_MouseEvent(g_mouseButtons, (int)(rx * 16.0f), 0);
+    if (rx != 0.0f) DG_MouseEvent(g_mouseButtons, (int)(rx * TURN), 0);
     if (ry != 0.0f && g_gpuMode) {
-        g_pitch -= ry * 0.04f;
+        g_pitch -= ry * LOOK;
         const float lim = 1.30f;
         if (g_pitch >  lim) g_pitch =  lim;
         if (g_pitch < -lim) g_pitch = -lim;
