@@ -142,7 +142,7 @@ void DoomRenderPass::ensureSceneTargets(uint32_t w, uint32_t h) {
 
     GpuTextureCreateInfo c{};
     c.width = w; c.height = h; c.depthOrLayers = 1; c.numLevels = 1;
-    c.format = GpuTextureFormat::R8G8B8A8_Unorm;
+    c.format = m_colorFormat;   // match the swapchain (BGRA8 on web), so the world/sky/sprite pipelines fit
     c.sampleCount = GpuSampleCount::x1;
     c.usage = GpuTextureUsage::ColorTarget | GpuTextureUsage::Sampler;
     m_sceneTex.gpuTexture = gpu.createTexture(c);
@@ -165,6 +165,7 @@ bool DoomRenderPass::init(GpuTextureFormat swapchainFormat,
                           size_t /*capacity*/, bool /*forceNoMSAA*/) {
     passname      = std::move(name);
     m_sampleCount = Renderer::GetSampleCount();
+    m_colorFormat = swapchainFormat;   // scene offscreen must match the pipelines' target
     IGpu& gpu     = Renderer::GetGpu();
 
     createDepth(surfaceWidth, surfaceHeight);

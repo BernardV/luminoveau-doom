@@ -39,6 +39,7 @@ private:
     uint32_t        m_vertexCount  = 0;   // vertices to draw
     unsigned        m_geomVersion  = 0xffffffffu;
     GpuSampleCount  m_sampleCount  = GpuSampleCount::x1;
+    GpuTextureFormat m_colorFormat = GpuTextureFormat::R8G8B8A8_Unorm;  // swapchain format (BGRA8 on web)
     uint32_t        m_depthW = 0, m_depthH = 0;
 
     GpuGraphicsPipelineHandle m_skyPipeline = 0;    // fullscreen sky background
