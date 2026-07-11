@@ -29,8 +29,10 @@ vec3 dynamicLights(vec3 p) {
     for (int i = 0; i < u.count; i++) {
         float rad = u.lightPosRad[i].w;
         float d   = length(u.lightPosRad[i].xyz - p);
-        float a   = clamp(1.0 - d / rad, 0.0, 1.0);
-        acc += u.lightColor[i].rgb * (a * a);
+        // Smooth (C1-continuous) falloff that reaches exactly 0 at d == rad, so a
+        // light popping in/out of the set at that distance causes no visible jump.
+        float a   = 1.0 - clamp(d / rad, 0.0, 1.0);
+        acc += u.lightColor[i].rgb * (a * a * (3.0 - 2.0 * a));   // smoothstep
     }
     return acc;
 }

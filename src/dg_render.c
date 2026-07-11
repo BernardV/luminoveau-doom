@@ -451,23 +451,48 @@ typedef struct { float x, y, z, r, g, b, rad, dist2; } dg_light_t;
 static dg_light_t g_lights[DG_MAX_LIGHTS];
 static int        g_lightCount = 0;
 
-static void light_color(mobj_t* mo, float* r, float* g, float* b, float* rad) {
+extern char* sprnames[];   // info.c: 4-char sprite names indexed by spritenum
+
+// Classify a light-emitting mobj. Projectiles are coloured by type; static
+// decorations only if they're an actual lamp/torch sprite (NOT every fullbright
+// thing — items/ammo have fullbright frames too and would flood the light set,
+// causing nearby lamps to pop on/off as the nearest-N set churns while moving).
+// Returns 1 and fills colour/radius, or 0 if not a light.
+static int light_color(mobj_t* mo, float* r, float* g, float* b, float* rad) {
     if (mo->flags & MF_MISSILE) {
         switch (mo->type) {
-            case MT_TROOPSHOT:   *r=1.0f; *g=0.45f;*b=0.10f; *rad=170; return; // imp fireball
-            case MT_FATSHOT:     *r=1.0f; *g=0.50f;*b=0.15f; *rad=170; return;
-            case MT_HEADSHOT:    *r=0.55f;*g=0.35f;*b=1.00f; *rad=170; return; // caco
-            case MT_BRUISERSHOT: *r=0.30f;*g=1.00f;*b=0.25f; *rad=180; return; // baron/knight
-            case MT_ROCKET:      *r=0.80f;*g=0.55f;*b=0.25f; *rad=130; return;
-            case MT_PLASMA:      *r=0.35f;*g=0.55f;*b=1.00f; *rad=160; return;
-            case MT_ARACHPLAZ:   *r=0.40f;*g=0.60f;*b=1.00f; *rad=160; return;
-            case MT_BFG:         *r=0.35f;*g=1.00f;*b=0.40f; *rad=320; return; // big green
-            default:             *r=0.95f;*g=0.70f;*b=0.40f; *rad=150; return;
+            case MT_TROOPSHOT:   *r=1.0f; *g=0.45f;*b=0.10f; *rad=170; return 1; // imp fireball
+            case MT_FATSHOT:     *r=1.0f; *g=0.50f;*b=0.15f; *rad=170; return 1;
+            case MT_HEADSHOT:    *r=0.55f;*g=0.35f;*b=1.00f; *rad=170; return 1; // caco
+            case MT_BRUISERSHOT: *r=0.30f;*g=1.00f;*b=0.25f; *rad=180; return 1; // baron/knight
+            case MT_ROCKET:      *r=0.80f;*g=0.55f;*b=0.25f; *rad=130; return 1;
+            case MT_PLASMA:      *r=0.35f;*g=0.55f;*b=1.00f; *rad=160; return 1;
+            case MT_ARACHPLAZ:   *r=0.40f;*g=0.60f;*b=1.00f; *rad=160; return 1;
+            case MT_BFG:         *r=0.35f;*g=1.00f;*b=0.40f; *rad=320; return 1; // big green
+            default:             *r=0.95f;*g=0.70f;*b=0.40f; *rad=150; return 1;
         }
     }
-    // Fullbright decoration (torch/lamp) — warm glow. (Blue/green torches glow
-    // warm too for now; per-type tinting can come later.)
-    *r=1.0f; *g=0.72f; *b=0.38f; *rad=150;
+    // Static light decorations, keyed by 4-char sprite name (per-type colour).
+    if (mo->sprite < 0 || mo->sprite >= numsprites) return 0;
+    const char* s = sprnames[mo->sprite];
+    if (!s) return 0;
+    #define SPR4(a,b_,c,d) (s[0]==(a)&&s[1]==(b_)&&s[2]==(c)&&s[3]==(d))
+    if (SPR4('T','L','M','P') || SPR4('T','L','P','2') || SPR4('C','O','L','U'))
+        { *r=1.00f; *g=0.95f; *b=0.80f; *rad=210; return 1; }   // tech lamps
+    if (SPR4('C','B','R','A'))
+        { *r=1.00f; *g=0.78f; *b=0.45f; *rad=180; return 1; }   // candelabra
+    if (SPR4('C','A','N','D'))
+        { *r=1.00f; *g=0.82f; *b=0.50f; *rad=110; return 1; }   // candle
+    if (SPR4('T','R','E','D') || SPR4('S','M','R','T'))
+        { *r=1.00f; *g=0.42f; *b=0.20f; *rad=190; return 1; }   // red torch
+    if (SPR4('T','B','L','U') || SPR4('S','M','B','T'))
+        { *r=0.40f; *g=0.55f; *b=1.00f; *rad=190; return 1; }   // blue torch
+    if (SPR4('T','G','R','N') || SPR4('S','M','G','T'))
+        { *r=0.40f; *g=1.00f; *b=0.55f; *rad=190; return 1; }   // green torch
+    if (SPR4('F','C','A','N'))
+        { *r=1.00f; *g=0.50f; *b=0.15f; *rad=210; return 1; }   // flaming barrel
+    #undef SPR4
+    return 0;
 }
 
 static void gather_lights(void) {
@@ -479,16 +504,16 @@ static void gather_lights(void) {
         if (th->function.acp1 != (actionf_p1)P_MobjThinker) continue;
         mobj_t* mo = (mobj_t*)th;
         if (mo->player) continue;
-        int emits = (mo->flags & MF_MISSILE) || (mo->frame & FF_FULLBRIGHT);
-        if (!emits) continue;
 
         dg_light_t L;
+        if (!light_color(mo, &L.r, &L.g, &L.b, &L.rad)) continue;
         L.x = FX(mo->x); L.z = FX(mo->y);
         L.y = FX(mo->z) + FX(mo->height) * 0.5f;
-        light_color(mo, &L.r, &L.g, &L.b, &L.rad);
         float dx = L.x - cx, dz = L.z - cz;
         L.dist2 = dx*dx + dz*dz;
-        if (L.dist2 > (L.rad + 400.0f) * (L.rad + 400.0f)) continue;  // cull far-away
+        // Cull exactly where the shader falloff reaches zero (d >= rad), so a light
+        // entering/leaving the set contributes ~0 there — no pop.
+        if (L.dist2 > L.rad * L.rad) continue;
 
         if (g_lightCount < DG_MAX_LIGHTS) {
             g_lights[g_lightCount++] = L;
