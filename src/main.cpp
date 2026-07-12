@@ -454,7 +454,17 @@ static void PollTouch()
     EdgeKey(fireHeld, tFire, DG_KEY_RCTRL);
     EdgeKey(b1, tUse,  ' ');
     EdgeKey(b3, tEsc,  DG_KEY_ESCAPE);
-    if (b2 && !bPrev[2]) { static int w = 1; w = w % 7 + 1; TapKey('0' + w); }
+    // Weapon cycle. Doom reads the number key level-triggered in G_BuildTiccmd, so a
+    // same-frame down+up (TapKey) is missed — hold the key a few frames instead.
+    static int w = 1, wpHoldKey = 0, wpHoldFrames = 0;
+    if (b2 && !bPrev[2]) {
+        if (wpHoldKey) DG_KeyEvent(0, wpHoldKey);   // release the previous pick first
+        w = w % 7 + 1;
+        wpHoldKey = '0' + w;
+        DG_KeyEvent(1, wpHoldKey);
+        wpHoldFrames = 3;
+    }
+    if (wpHoldKey && --wpHoldFrames <= 0) { DG_KeyEvent(0, wpHoldKey); wpHoldKey = 0; }
 
     // Secret cheat unlock: press USE,USE,WPN,WPN,FIRE,FIRE,USE on the buttons to
     // open the typed-cheat prompt (indices FIRE=0, USE=1, WPN=2). The button actions
