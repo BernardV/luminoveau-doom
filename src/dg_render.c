@@ -48,6 +48,14 @@ float DG_FlashLevel(void) {
     return f > 1.0f ? 1.0f : f;
 }
 
+// Whether the console player owns the weapon in number-key slot 1..7. Slots map to
+// weapontype wp_fist..wp_bfg (0..6), the same as Doom's '1'..'7' keys. Used by the
+// touch weapon-cycle button to skip weapons you don't have.
+int DG_WeaponOwned(int slot) {
+    if (slot < 1 || slot > 7) return 0;
+    return players[consoleplayer].weaponowned[slot - 1] ? 1 : 0;
+}
+
 // ── HUD message + font (drawn by the GPU overlay, on top of the 3D) ──────────
 // The software HUD message lives in screens[0]'s top region, which the GPU 3D
 // draws over, so we mirror it out and re-draw it with Doom's own font.

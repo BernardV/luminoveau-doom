@@ -459,7 +459,10 @@ static void PollTouch()
     static int w = 1, wpHoldKey = 0, wpHoldFrames = 0;
     if (b2 && !bPrev[2]) {
         if (wpHoldKey) DG_KeyEvent(0, wpHoldKey);   // release the previous pick first
-        w = w % 7 + 1;
+        for (int step = 0; step < 7; ++step) {      // advance to the next OWNED slot
+            w = w % 7 + 1;
+            if (DG_WeaponOwned(w)) break;
+        }
         wpHoldKey = '0' + w;
         DG_KeyEvent(1, wpHoldKey);
         wpHoldFrames = 3;

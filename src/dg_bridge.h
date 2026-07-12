@@ -123,6 +123,11 @@ void DG_SetPitch(float pitchRad);
 // shaders as a localized point light at the eye with distance falloff.
 float DG_FlashLevel(void);
 
+// Whether the console player owns the weapon in number-key slot 1..7 (1=fist,
+// 2=pistol, 3=shotgun, 4=chaingun, 5=rocket, 6=plasma, 7=bfg). For the touch
+// weapon-cycle to skip weapons not yet picked up.
+int DG_WeaponOwned(int slot);
+
 // ── Dynamic colored point lights ────────────────────────────────────────────
 // Per-frame lights from projectiles (colored by type) + fullbright decorations.
 // DG_LightCount rebuilds the nearest-N list; DG_Light fills out7 = {x,y,z (engine
