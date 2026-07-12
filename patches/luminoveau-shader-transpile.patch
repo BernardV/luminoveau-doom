@@ -1,37 +1,5 @@
-Luminoveau — web shader-transpile toolchain fixes
-==================================================
-
-Fixes the web (Emscripten/WebGPU) build so GLSL shaders transpile to WGSL
-reliably. File touched:
-
-    cmake/ShaderTranspile.cmake
-
-Three issues found while getting a WebGPU build to run:
-
-1. LUMI_TINT_EXECUTABLE must be CACHE INTERNAL. Set with a plain set() it's
-   invisible to lumi_transpile_shaders() when called from a consuming project's
-   scope, so shaders silently don't transpile and the runtime aborts at
-   FileHandler::_readTextFile on a missing .wgsl. (glslang worked only because
-   find_program already caches.)
-
-2. Pass -DTINT_BUILD_IR_BINARY=OFF when building Tint — recent Dawn otherwise
-   wants protobuf.
-
-3. Patch Dawn's tools/fetch_dawn_dependencies.py to inject Str=str — its DEPS uses
-   gclient's Str() helper, which isn't defined in the standalone fetch and throws
-   NameError.
-
-Note: naga is NOT a working Tint substitute here — it can't parse glslang's
-combined-sampler2D SPIR-V ("invalid id" on OpLoad of OpTypeSampledImage); only the
-vertex shaders convert. Tint (built from Dawn) handles both.
-
-To apply (from the engine repo root):
-    git apply luminoveau-shader-transpile.patch      # or: patch -p1 < ...
-
---- 8< --- patch below --- 8< ---
-
 diff --git a/cmake/ShaderTranspile.cmake b/cmake/ShaderTranspile.cmake
-index 754e117..19f9628 100644
+index 754e117..d25f960 100644
 --- a/cmake/ShaderTranspile.cmake
 +++ b/cmake/ShaderTranspile.cmake
 @@ -70,6 +70,12 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
@@ -47,7 +15,19 @@ index 754e117..19f9628 100644
              lumi_msg("Fetching Dawn dependencies...")
              execute_process(
                  COMMAND ${Python3_EXECUTABLE}
-@@ -139,6 +145,10 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
+@@ -130,6 +136,11 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
+                 -DDAWN_BUILD_SAMPLES=OFF
+                 -DDAWN_BUILD_TESTS=OFF
+                 -DDAWN_BUILD_BENCHMARKS=OFF
++                # Don't pull in GLFW — the tint CLI doesn't need it, and configuring
++                # it on Linux/CI requires X11/Wayland dev libs (and fails under emcmake,
++                # which points pkg-config at the Emscripten sysroot).
++                -DDAWN_USE_GLFW=OFF
++                -DDAWN_ENABLE_DESKTOP_GL=OFF
+                 -DTINT_BUILD_TESTS=OFF
+                 -DTINT_BUILD_FUZZERS=OFF
+                 -DTINT_BUILD_BENCHMARKS=OFF
+@@ -139,6 +150,10 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
                  -DTINT_BUILD_GLSL_WRITER=OFF
                  -DTINT_BUILD_HLSL_WRITER=OFF
                  -DTINT_BUILD_MSL_WRITER=OFF
@@ -58,7 +38,7 @@ index 754e117..19f9628 100644
              RESULT_VARIABLE _configure_result
              OUTPUT_QUIET
          )
-@@ -164,12 +174,16 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
+@@ -164,12 +179,16 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
      endif()
  endif()
  
