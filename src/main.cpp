@@ -14,6 +14,10 @@
 #include <cstring>
 #include <vector>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 extern "C" {
 #include "dg_bridge.h"
 }
@@ -308,18 +312,13 @@ static bool TouchAvailable()
 {
     if (getenv("DOOM_TOUCH")) return true;
 #ifdef __EMSCRIPTEN__
-    // Web: auto-enable only for a REAL hardware touchscreen. SDL also exposes a
-    // synthetic "pen"/"mouse" touch device (negative id) for pointer emulation —
-    // skip it, else desktop browsers get stray on-screen controls.
-    int count = 0;
-    SDL_TouchID* devs = SDL_GetTouchDevices(&count);
-    bool hasScreen = false;
-    for (int i = 0; i < count; i++) {
-        if ((int64_t)devs[i] < 0) continue;                          // synthetic mouse/pen device
-        if (SDL_GetTouchDeviceType(devs[i]) == SDL_TOUCH_DEVICE_DIRECT) { hasScreen = true; break; }
-    }
-    if (devs) SDL_free(devs);
-    return hasScreen;
+    // Web: ask the browser directly. SDL_GetTouchDevices enumerates lazily on
+    // emscripten (empty until the first touch actually happens), so it's false at
+    // startup on iOS/Android and the controls would never appear. navigator's
+    // maxTouchPoints / 'ontouchstart' is reliable at load. Desktop reports 0 (or a
+    // real value under device emulation, which is fine — that's a touch context).
+    return emscripten_run_script_int(
+        "((navigator.maxTouchPoints > 0) || ('ontouchstart' in window)) ? 1 : 0") != 0;
 #else
     // Native desktop always has a mouse + keyboard, and SDL reports a synthetic
     // pen/mouse "touch" device there — so never auto-enable; use DOOM_TOUCH=1 to test.

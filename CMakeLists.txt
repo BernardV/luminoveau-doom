@@ -100,14 +100,20 @@ if(EMSCRIPTEN)
         SHELL_FILE "${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html")
     set_target_properties(doom PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
-    # PWA support files (manifest, service worker, icons) served next to doom.html.
+    # PWA support files (manifest, service worker, icons) served next to the page.
     add_custom_command(TARGET doom POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy
             "${CMAKE_CURRENT_SOURCE_DIR}/web/manifest.webmanifest"
             "${CMAKE_CURRENT_SOURCE_DIR}/web/sw.js"
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/icon-180.png"
             "${CMAKE_CURRENT_SOURCE_DIR}/web/icon-192.png"
             "${CMAKE_CURRENT_SOURCE_DIR}/web/icon-512.png"
-            "${CMAKE_BINARY_DIR}/bin/")
+            "${CMAKE_BINARY_DIR}/bin/"
+        # Also emit index.html (the web server's default document) as a copy of the
+        # generated doom.html, so the site works at the bare directory URL.
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_BINARY_DIR}/bin/doom.html"
+            "${CMAKE_BINARY_DIR}/bin/index.html")
 elseif(APPLE)
     set_target_properties(doom PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
     # Bundle: put assets in Contents/Resources — where SDL_GetBasePath() points.

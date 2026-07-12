@@ -31,7 +31,9 @@ self.addEventListener('fetch', (e) => {
                 if (hit) return hit;
                 return fetch(req).then((res) => {
                     if (res && res.ok && res.type === 'basic') {
-                        cache.put(req, res.clone());
+                        // Fire-and-forget; ignore quota errors (iOS caps SW cache
+                        // and the wasm+data are large) so they never break loading.
+                        cache.put(req, res.clone()).catch(() => {});
                     }
                     return res;
                 }).catch(() => hit);
