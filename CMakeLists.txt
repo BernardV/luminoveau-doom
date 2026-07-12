@@ -113,7 +113,12 @@ if(EMSCRIPTEN)
         # generated doom.html, so the site works at the bare directory URL.
         COMMAND ${CMAKE_COMMAND} -E copy
             "${CMAKE_BINARY_DIR}/bin/doom.html"
-            "${CMAKE_BINARY_DIR}/bin/index.html")
+            "${CMAKE_BINARY_DIR}/bin/index.html"
+        # Stamp the build version (date + git hash) into the HTML/SW __DOOM_VERSION__
+        # token so assets are cache-busted per build and the version shows on screen.
+        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/web/stamp_version.sh"
+            "${CMAKE_BINARY_DIR}/bin" "${CMAKE_CURRENT_SOURCE_DIR}"
+        VERBATIM)
 elseif(APPLE)
     set_target_properties(doom PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
     # Bundle: put assets in Contents/Resources — where SDL_GetBasePath() points.

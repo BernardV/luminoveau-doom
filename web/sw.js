@@ -5,7 +5,9 @@
 // cache-first strategy (cache whatever gets fetched) rather than precaching a
 // fixed list. Bump CACHE to invalidate everything on a new deploy.
 
-const CACHE = 'doom-v1';
+// Cache name carries the build version (replaced at build time) so activating a
+// new build drops every old entry.
+const CACHE = 'doom-__DOOM_VERSION__';
 
 self.addEventListener('install', () => {
     self.skipWaiting();
@@ -23,8 +25,21 @@ self.addEventListener('fetch', (e) => {
     const req = e.request;
     if (req.method !== 'GET') return;
 
-    // Cache-first, falling back to network and caching the result. Keys ignore
-    // the ?v= cache-buster so re-visits with a new query still hit the cache.
+    // The HTML entry (navigation) is network-first: always fetch the latest page
+    // so the shown build version is current; fall back to cache when offline.
+    if (req.mode === 'navigate') {
+        e.respondWith(
+            fetch(req).then((res) => {
+                caches.open(CACHE).then((c) => c.put(req, res.clone())).catch(() => {});
+                return res;
+            }).catch(() => caches.match(req, { ignoreSearch: true }))
+        );
+        return;
+    }
+
+    // Static assets (wasm/data/js/icons) are cache-first — they're versioned via
+    // the ?v= query, so a new build fetches fresh URLs anyway. Keys ignore the
+    // query so an unchanged asset still hits the cache across builds.
     e.respondWith(
         caches.open(CACHE).then((cache) =>
             cache.match(req, { ignoreSearch: true }).then((hit) => {

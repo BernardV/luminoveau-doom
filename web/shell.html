@@ -63,6 +63,10 @@
         }
         #startgame.ready #progressbar { display:none; }
         .err { font-size:.42em; opacity:.8; display:block; margin-top:.5em; line-height:1.4; }
+        #version {
+            position:fixed; right:max(10px, env(safe-area-inset-right)); bottom:max(8px, env(safe-area-inset-bottom));
+            font-family:monospace; font-size:13px; color:#888; opacity:.7; letter-spacing:.02em;
+        }
     </style>
 </head>
 <body>
@@ -70,6 +74,7 @@
         <h1 class="brand">DOOM</h1>
         <div class="cta" id="startgame-text">Loading&hellip;</div>
         <div id="progressbar"><div></div></div>
+        <div id="version">v __DOOM_VERSION__</div>
     </div>
 
     <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex=-1></canvas>
@@ -191,9 +196,13 @@
 
         var _addRunDep, _removeRunDep, _autoStartPending = false;
 
+        // Build version — replaced at build time. Stamps every asset request so a
+        // fresh build is never served stale from cache, and is shown bottom-right.
+        var DOOM_VERSION = "__DOOM_VERSION__";
+
         var Module = {
             _ma_device__on_notification_unlocked() {},
-            locateFile: function(path, prefix) { return prefix + path + location.search; },
+            locateFile: function(path, prefix) { return prefix + path + "?v=" + DOOM_VERSION; },
             preRun: [], postRun: [],
             print: function() { return function(text) {
                 if (arguments.length > 1) text = Array.prototype.slice.call(arguments).join(' ');
