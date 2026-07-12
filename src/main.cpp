@@ -341,7 +341,9 @@ static void PollTouch()
     vf2d dir = vc.GetJoystickDirection();     // screen space: +x right, +y down
     float mag = vc.GetJoystickMagnitude();
     const float T = 0.4f;
-    bool up = mag > T && dir.y < -0.5f, down = mag > T && dir.y > 0.5f;
+    // Forward/back engages across the whole upper/lower arc (dir.y past a small
+    // threshold) so a diagonal push still walks while the horizontal part turns.
+    bool up = mag > T && dir.y < -0.35f, down = mag > T && dir.y > 0.35f;
     bool left = mag > T && dir.x < -0.5f, right = mag > T && dir.x > 0.5f;
 
     // Button semantics: 0=fire, 1=use, 2=weapon-next, 3=menu. Edge via JustPressed.
@@ -362,11 +364,18 @@ static void PollTouch()
     EdgeKey(false, tMUp, DG_KEY_UPARROW); EdgeKey(false, tMDn, DG_KEY_DOWNARROW);
     EdgeKey(false, tEnter, DG_KEY_ENTER);
 
-    // Left disc: forward/back + strafe (left/right).
-    EdgeKey(up,    tFwd,  DG_KEY_UPARROW);
-    EdgeKey(down,  tBack, DG_KEY_DOWNARROW);
-    EdgeKey(left,  tStrL, ',');
-    EdgeKey(right, tStrR, '.');
+    // Left disc = single-stick move: up/down walk fwd/back, left/right TURN (so you
+    // walk toward where your finger points — push up-left to curve left, etc.).
+    // Turn is analog: proportional to the horizontal push, via Doom's ev_mouse.
+    (void)left; (void)right;
+    EdgeKey(up,   tFwd,  DG_KEY_UPARROW);
+    EdgeKey(down, tBack, DG_KEY_DOWNARROW);
+    EdgeKey(false, tStrL, ',');   // strafe retired from the disc (turn replaces it)
+    EdgeKey(false, tStrR, '.');
+    static const float DISC_TURN = getenv("DOOM_TOUCH_DISCTURN") ? (float)atof(getenv("DOOM_TOUCH_DISCTURN")) : 14.0f;
+    float turnX = dir.x * mag;                 // -1..1 horizontal push
+    if (mag > T && (turnX > 0.15f || turnX < -0.15f))   // deadzone: ignore tiny drift
+        DG_MouseEvent(g_mouseButtons, (int)(turnX * DISC_TURN), 0);
 
     // Right-half drag = look: horizontal turns (Doom ev_mouse), vertical pitches
     // the GPU camera (renderer-only). Sensitivities env-overridable.
