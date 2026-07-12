@@ -145,6 +145,7 @@ static int SdlKeyToDoom(SDL_Keycode kc)
 }
 
 static int   g_mouseButtons = 0;
+static bool  g_touchNoMouse = false;  // real touch device: ignore mouse (touch emits synthetic clicks)
 static bool  g_gpuMode = false;   // GPU renderer active (enables mouselook)
 static float g_pitch   = 0.0f;    // look up/down angle, radians
 static bool  g_touch   = false;   // on-screen touch controls active (mobile/web)
@@ -475,9 +476,19 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
         vc.SetButtonLabel(1, "USE");
         vc.SetButtonLabel(2, "WPN");
         vc.SetButtonLabel(3, "MENU");
+        // The default cm sizes are tablet-scale; shrink for phones (tunable).
+        {
+            const float sc = getenv("DOOM_TOUCH_SCALE") ? (float)atof(getenv("DOOM_TOUCH_SCALE")) : 0.5f;
+            vc.SetControlScale(sc);
+        }
+        // A real touch device also emits synthetic mouse events that mirror each
+        // finger — they'd fire the gun on any tap and double-drive look. Ignore the
+        // mouse (both here and in VirtualControls) unless this is the desktop test.
+        g_touchNoMouse = !getenv("DOOM_TOUCH");
+        vc.SetMouseEmulationEnabled(!g_touchNoMouse);
         vc.SetEnabled(true);
         g_touch = true;
-        LOG_INFO("Touch controls enabled");
+        LOG_INFO("Touch controls enabled (noMouse={})", g_touchNoMouse);
     }
 
     return Lumi::Result::Continue;
@@ -486,7 +497,7 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
 Lumi::Result AppIterate(void* /*appstate*/)
 {
     PollKeyboard();                    // feed keyboard edges into Doom
-    PollMouseButtons();                // mouse buttons (fire = left)
+    if (!g_touchNoMouse) PollMouseButtons();  // mouse buttons (fire = left) — off on touch
     PollGamepad();                     // + gamepad, if one is connected
     PollTouch();                       // + on-screen touch controls, if enabled
 
@@ -494,7 +505,7 @@ Lumi::Result AppIterate(void* /*appstate*/)
     // (via Doom's ev_mouse), vertical delta drives the renderer-only pitch.
     // Suspended while a menu/pause/automap is up — and the cursor is released
     // then so the user can move the mouse freely.
-    if (g_gpuMode) {
+    if (g_gpuMode && !g_touchNoMouse) {
         bool uiActive = DG_UIActive();
         static int  prevRelative = -1;  // -1 = force first apply
         static int  settle = 0;
@@ -575,8 +586,9 @@ Lumi::Result AppEvent(void* /*appstate*/, SDL_Event* event)
     {
         case SDL_EVENT_MOUSE_MOTION:
             // In GPU mode, mouse motion is read via Input::GetMouseDelta in
-            // AppIterate (turn + pitch); avoid double-feeding here.
-            if (!g_gpuMode)
+            // AppIterate (turn + pitch); avoid double-feeding here. On a real touch
+            // device the synthetic mouse mirrors fingers — ignore it entirely.
+            if (!g_gpuMode && !g_touchNoMouse)
                 DG_MouseEvent(g_mouseButtons,
                               (int)event->motion.xrel,
                               (int)event->motion.yrel);

@@ -199,6 +199,25 @@ public:
      */
     void SetUsePhysicalCoords(bool usePhysical) { m_usePhysicalCoords = usePhysical; }
 
+    /**
+     * @brief Uniformly scale the on-screen controls (joystick + buttons + offsets).
+     *
+     * The default cm-based sizes suit tablets; on a phone (especially portrait)
+     * they can be too large. This multiplies every size and layout offset, so e.g.
+     * 0.5 makes the whole control set half as big and tighter into the corners.
+     * @param scale >0; 1.0 = default. Recomputes the layout immediately.
+     */
+    void SetControlScale(float scale);
+
+    /**
+     * @brief Enable/disable driving the controls with the mouse (desktop testing).
+     *
+     * On a real touch device the browser also emits synthetic mouse events that
+     * mirror each finger, which would double-drive the look region and joystick.
+     * Disable this when genuine touch input is present. Default: enabled.
+     */
+    void SetMouseEmulationEnabled(bool enabled) { m_mouseEmulation = enabled; }
+
     // === Look region (right-side drag → camera delta) ===
     /**
      * @brief Enable a look/drag region: dragging in the right half of the screen
@@ -259,6 +278,11 @@ private:
 
     // Coordinate space: logical (default) or physical (device) pixels.
     bool m_usePhysicalCoords = false;
+
+    // Uniform size multiplier for all controls (1.0 = default cm sizing).
+    float m_controlScale = 1.0f;
+    // Drive controls with the mouse (desktop test). Off on real touch devices.
+    bool m_mouseEmulation = true;
     float viewW() const;   ///< Active-space window width (logical or physical).
     float viewH() const;   ///< Active-space window height.
 

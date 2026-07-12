@@ -52,7 +52,7 @@ float VirtualControls::cm(float wantedCM) const {
 #endif
 
     float scale = SDL_GetWindowDisplayScale(Window::GetWindow());
-    return wantedCM * logicalPerCm * scale;
+    return wantedCM * logicalPerCm * scale * m_controlScale;
 }
 
 float VirtualControls::pixelsToCm(float pixels) const {
@@ -104,8 +104,16 @@ void VirtualControls::Update() {
     if (!m_enabled) return;
 
     UpdateJoystick();
-    UpdateMouse();
+    if (m_mouseEmulation) UpdateMouse();
     UpdateButtons();
+}
+
+void VirtualControls::SetControlScale(float scale) {
+    m_controlScale = (scale > 0.0f) ? scale : 1.0f;
+    // Recompute cm-derived geometry with the new scale.
+    m_joystickRadius = cm(3.0f);
+    m_joystickOffset = {cm(4.5f), -cm(4.5f)};
+    LayoutButtons();
 }
 
 void VirtualControls::HandleTouchEvent(const SDL_Event *event) {
