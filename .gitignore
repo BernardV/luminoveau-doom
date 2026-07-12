@@ -1,0 +1,22 @@
+# Build output (CMake dirs, incl. all fetched dependencies + generated shaders)
+build/
+build-*/
+
+# macOS
+.DS_Store
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+
+# CMake user files
+CMakeUserPresets.json
+
+# Luminoveau engine is fetched via CMake FetchContent (pinned commit + patches/),
+# not vendored — see patches/README.md. Kept locally, never committed.
+vendor/lumi/
+
+# IWADs are copyrighted game data — keep them local, never commit.
+# The freely distributable shareware doom1.wad is force-added as an exception.
+*.wad
