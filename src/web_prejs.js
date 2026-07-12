@@ -58,6 +58,11 @@
     ['keydown', 'pointerdown', 'mousedown', 'touchstart', 'click'].forEach(function (t) {
       window.addEventListener(t, resumeAll, { capture: true, passive: true });
     });
+    // Exposed so the PWA start button can keep resuming after its tap: miniaudio
+    // creates its context only once the game starts (after the gate releases),
+    // i.e. after the tap gesture — so the listeners above have already fired and
+    // missed it. The shell polls this for a few seconds post-tap to catch it.
+    window.__lumiResumeAudio = resumeAll;
   })();
 
   if (typeof GPUQueue !== 'undefined' && !GPUQueue.prototype.__resizableFix) {

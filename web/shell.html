@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>DOOM</title>
+
+    <!-- PWA / mobile-fullscreen -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#000000">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="DOOM">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600&display=swap" rel="stylesheet">
+
+    <style>
+        html, body {
+            background:#000; margin:0; padding:0; width:100%; height:100%;
+            overflow:hidden; overscroll-behavior:none;
+        }
+        /* Canvas fills the whole viewport (safe-area-aware); no pinch/scroll. */
+        canvas.emscripten {
+            position:fixed; inset:0; width:100vw; height:100vh;
+            display:block; border:0; background:#000;
+            touch-action:none; -webkit-tap-highlight-color:transparent;
+        }
+        canvas:focus { outline:none; }
+
+        /* Start / loading overlay. */
+        #startgame {
+            font-family:'Barlow Condensed', sans-serif;
+            position:fixed; inset:0; z-index:10;
+            display:flex; flex-direction:column; justify-content:center; align-items:center;
+            text-align:center; color:#fff; background:#000;
+            padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+            -webkit-tap-highlight-color:transparent; user-select:none;
+        }
+        #startgame .brand {
+            font-size:clamp(3em, 18vw, 9em); letter-spacing:0.12em; font-weight:600;
+            color:#e33; text-shadow:0 0 24px rgba(230,40,40,.55); margin:0;
+        }
+        #startgame .cta {
+            font-size:clamp(1.2em, 6vw, 2.2em); margin-top:.4em; color:#fff; opacity:.9;
+        }
+        #startgame:not(.ready) .cta { opacity:.5; }
+        #startgame.ready { cursor:pointer; }
+        #progressbar {
+            width:60vw; max-width:520px; height:14px; margin-top:1.1em;
+            border:2px solid #fff; border-radius:4px; background:#111; overflow:hidden;
+        }
+        #progressbar > div {
+            width:0%; height:100%;
+            background:linear-gradient(90deg,#e33,#f96);
+            transition:width .15s ease-out;
+        }
+        #startgame.ready #progressbar { display:none; }
+        .err { font-size:.42em; opacity:.8; display:block; margin-top:.5em; line-height:1.4; }
+    </style>
+</head>
+<body>
+    <div id="startgame">
+        <h1 class="brand">DOOM</h1>
+        <div class="cta" id="startgame-text">Loading&hellip;</div>
+        <div id="progressbar"><div></div></div>
+    </div>
+
+    <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex=-1></canvas>
+
+    <script>
+        // ── Fullscreen + orientation ──────────────────────────────────────────
+        function goFullscreen() {
+            var el = document.documentElement;
+            var req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen;
+            if (req) { try { var p = req.call(el); if (p && p.catch) p.catch(function(){}); } catch (e) {} }
+            if (screen.orientation && screen.orientation.lock) {
+                try { screen.orientation.lock('landscape').catch(function(){}); } catch (e) {}
+            }
+        }
+
+        // ── Canvas sizing: fill the viewport at device-pixel resolution ───────
+        function resizeCanvas() {
+            var c = document.getElementById('canvas');
+            if (!c) return;
+            var dpr = window.devicePixelRatio || 1;
+            var w = Math.round(window.innerWidth  * dpr);
+            var h = Math.round(window.innerHeight * dpr);
+            if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+        }
+        window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('orientationchange', function(){ setTimeout(resizeCanvas, 200); });
+
+        // ── Start gate (also unlocks audio + goes fullscreen) ─────────────────
+        var _started = false;
+        function startGame() {
+            var sg = document.getElementById('startgame');
+            if (!sg.classList.contains('ready') || _started) return;
+            _started = true;
+            goFullscreen();
+            resizeCanvas();
+            // miniaudio's AudioContext is created only after the gate releases —
+            // keep resuming it for a few seconds so sound starts with the game.
+            var tries = 0;
+            var t = setInterval(function () {
+                if (window.__lumiResumeAudio) window.__lumiResumeAudio();
+                if (++tries > 40) clearInterval(t);   // ~10s
+            }, 250);
+            if (_removeRunDep) _removeRunDep("bixxyengine_init_delay");
+            else _autoStartPending = true;
+            sg.style.display = 'none';
+        }
+        document.getElementById('startgame').addEventListener('click', startGame);
+
+        // ── Service worker (installable / offline) ────────────────────────────
+        if ('serviceWorker' in navigator && window.isSecureContext) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('sw.js').catch(function(){});
+            });
+        }
+
+        // ── WebGPU preflight ──────────────────────────────────────────────────
+        (async function() {
+            var txt = document.getElementById('startgame-text');
+            function fail(html) { if (txt) txt.innerHTML = html; document.getElementById('progressbar').style.display = 'none'; }
+            if (!window.isSecureContext)
+                return fail('WebGPU requires a secure context.<span class="err">Load over HTTPS or http://localhost.</span>');
+            if (!navigator.gpu)
+                return fail('WebGPU not enabled in this browser.<span class="err">Use Chrome/Edge 113+ or Safari 17.4+.</span>');
+            try {
+                if (!await navigator.gpu.requestAdapter())
+                    fail('No compatible WebGPU adapter.<span class="err">GPU driver may be blocked or out of date.</span>');
+            } catch (e) {
+                fail('WebGPU adapter request failed.<span class="err">' + e.message + '</span>');
+            }
+        })();
+
+        function _lumiSetProgress(frac) {
+            var bar = document.querySelector('#progressbar > div');
+            if (bar) bar.style.width = (Math.max(0, Math.min(1, frac)) * 100).toFixed(1) + '%';
+        }
+        function _lumiMarkReady() {
+            var sg  = document.getElementById('startgame');
+            var txt = document.getElementById('startgame-text');
+            if (sg) sg.classList.add('ready');
+            _lumiSetProgress(1);
+            // PWA: always wait for a tap — it unlocks audio and enters fullscreen.
+            if (window.isSecureContext && navigator.gpu && txt) txt.textContent = 'Tap to play';
+        }
+
+        // ── .wasm download progress bar (HEAD for a reliable total) ───────────
+        (function() {
+            var _origFetch = window.fetch;
+            window.fetch = function(input, opts) {
+                var url = (typeof input === 'string') ? input : (input && input.url) || '';
+                if (url.indexOf('.wasm') < 0) return _origFetch.apply(this, arguments);
+                var totalPromise = _origFetch(url, { method: 'HEAD' })
+                    .then(function(h) {
+                        if (!h.ok) return 0;
+                        var unc = parseInt(h.headers.get('x-uncompressed-content-length') || '0', 10);
+                        return unc > 0 ? unc : parseInt(h.headers.get('content-length') || '0', 10);
+                    }).catch(function() { return 0; });
+                return Promise.all([_origFetch(input, opts), totalPromise]).then(function(arr) {
+                    var response = arr[0], total = arr[1];
+                    if (!response.ok || !response.body) return response;
+                    if (!total) total = parseInt(response.headers.get('content-length') || '0', 10);
+                    if (!total) total = 30 * 1024 * 1024;
+                    var received = 0, reader = response.body.getReader();
+                    var stream = new ReadableStream({ start: function(controller) {
+                        (function pump() {
+                            return reader.read().then(function(r) {
+                                if (r.done) { _lumiSetProgress(1); _lumiMarkReady(); controller.close(); return; }
+                                received += r.value.byteLength;
+                                if (received > total) total = received;
+                                if (total > 0) _lumiSetProgress(received / total);
+                                controller.enqueue(r.value);
+                                return pump();
+                            });
+                        })();
+                    }});
+                    return new Response(stream, { headers: response.headers, status: response.status, statusText: response.statusText });
+                });
+            };
+        })();
+
+        var _addRunDep, _removeRunDep, _autoStartPending = false;
+
+        var Module = {
+            _ma_device__on_notification_unlocked() {},
+            locateFile: function(path, prefix) { return prefix + path + location.search; },
+            preRun: [], postRun: [],
+            print: function() { return function(text) {
+                if (arguments.length > 1) text = Array.prototype.slice.call(arguments).join(' ');
+                console.log(text);
+            }; }(),
+            canvas: (() => {
+                var canvas = document.getElementById('canvas');
+                canvas.addEventListener("webglcontextlost", (e) => { alert('WebGL context lost. Reload the page.'); e.preventDefault(); }, false);
+                return canvas;
+            })(),
+            setStatus: (text) => {
+                if (!Module.setStatus.last) Module.setStatus.last = { time: Date.now(), text: '' };
+                if (text === Module.setStatus.last.text) return;
+                var m = text.match(/([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/);
+                var now = Date.now();
+                if (m && now - Module.setStatus.last.time < 30) return;
+                Module.setStatus.last.time = now; Module.setStatus.last.text = text;
+                if (m) { var cur = parseFloat(m[2]), tot = parseFloat(m[4]); if (tot > 0) _lumiSetProgress(cur / tot); }
+            },
+            totalDependencies: 0,
+            monitorRunDependencies: (left) => {
+                this.totalDependencies = Math.max(this.totalDependencies, left);
+                Module.setStatus(left ? 'Preparing... (' + (this.totalDependencies-left) + '/' + this.totalDependencies + ')' : 'All downloads complete.');
+            }
+        };
+        Module.setStatus('Downloading...');
+        window.onerror = () => {
+            Module.setStatus('Exception thrown, see JavaScript console');
+            Module.setStatus = (text) => { if (text) console.error('[post-exception status] ' + text); };
+        };
+        Module.preRun.push(function() {
+            _addRunDep = addRunDependency;
+            _removeRunDep = removeRunDependency;
+            _addRunDep("bixxyengine_init_delay");
+            if (_autoStartPending) _removeRunDep("bixxyengine_init_delay");
+        });
+    </script>
+    {{{ SCRIPT }}}
+</body>
+</html>

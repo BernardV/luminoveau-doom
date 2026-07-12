@@ -92,13 +92,22 @@ endif()
 if(EMSCRIPTEN)
     # Preloads assets/ (containing doom1.wad) into the virtual FS at /assets and
     # emits doom.html + wasm using the engine's web helper.
-    # Auto-start shell (no click-to-start gate) — same one the engine's web demos
-    # use. Audio is stubbed, so no user gesture is needed to unlock it.
+    # Custom PWA shell (web/shell.html): installable, tap-to-play (unlocks audio),
+    # fullscreen on mobile, full-viewport canvas.
     luminoveau_configure_web_target(doom
         SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
         OUTPUT_DIR "${CMAKE_BINARY_DIR}/bin"
-        SHELL_FILE "${LUMINOVEAU_ROOT_DIR}/assets/shell_sample.html")
+        SHELL_FILE "${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html")
     set_target_properties(doom PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    # PWA support files (manifest, service worker, icons) served next to doom.html.
+    add_custom_command(TARGET doom POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/manifest.webmanifest"
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/sw.js"
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/icon-192.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/icon-512.png"
+            "${CMAKE_BINARY_DIR}/bin/")
 elseif(APPLE)
     set_target_properties(doom PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
     # Bundle: put assets in Contents/Resources — where SDL_GetBasePath() points.
