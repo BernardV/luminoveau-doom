@@ -119,14 +119,40 @@
 
     <script>
         // ── Fullscreen + orientation ──────────────────────────────────────────
+        var _wantFullscreen = false;   // set once the user starts; drives auto-restore
+        function isFullscreen() {
+            return !!(document.fullscreenElement || document.webkitFullscreenElement);
+        }
         function goFullscreen() {
             var el = document.documentElement;
             var req = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen;
-            if (req) { try { var p = req.call(el); if (p && p.catch) p.catch(function(){}); } catch (e) {} }
+            if (req && !isFullscreen()) {
+                try { var p = req.call(el); if (p && p.catch) p.catch(function(){}); } catch (e) {}
+            }
             if (screen.orientation && screen.orientation.lock) {
                 try { screen.orientation.lock('landscape').catch(function(){}); } catch (e) {}
             }
         }
+        // Android/Samsung Chrome drops element-fullscreen on all sorts of things — a
+        // rotation, the notification shade, an orientation-lock hiccup, the soft
+        // keyboard. We only ever requested it once, so a transient drop stuck. Now:
+        // whenever we've lost fullscreen but still want it, re-request on the next
+        // user gesture (fullscreen can only be entered from within one). Cheap guard
+        // so it's a no-op while already fullscreen.
+        function restoreFullscreenSoon() {
+            // Don't fight the soft keyboard while the cheat prompt is open (re-entering
+            // fullscreen would dismiss it).
+            var cp = document.getElementById('cheat');
+            if (cp && cp.classList.contains('show')) return;
+            if (_wantFullscreen && !isFullscreen()) goFullscreen();
+        }
+        ['touchend', 'pointerup', 'click'].forEach(function (t) {
+            window.addEventListener(t, restoreFullscreenSoon, { capture: true, passive: true });
+        });
+        document.addEventListener('fullscreenchange', function () {
+            // If the user deliberately exits (e.g. Back gesture) we still re-enter on
+            // their next in-game tap — acceptable: the game is meant to be fullscreen.
+        });
 
         // ── Canvas sizing: fill the viewport at device-pixel resolution ───────
         function resizeCanvas() {
@@ -146,6 +172,7 @@
             var sg = document.getElementById('startgame');
             if (!sg.classList.contains('ready') || _started) return;
             _started = true;
+            _wantFullscreen = true;
             goFullscreen();
             resizeCanvas();
             // miniaudio's AudioContext is created only after the gate releases —
