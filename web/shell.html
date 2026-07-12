@@ -155,16 +155,26 @@
         });
 
         // ── Canvas sizing: fill the viewport at device-pixel resolution ───────
+        // The canvas backing size drives the WebGPU swapchain, so it must match the
+        // real viewport. Prefer visualViewport (the actually-visible area, excludes
+        // the soft keyboard / URL bar) and fall back to innerWidth/Height.
         function resizeCanvas() {
             var c = document.getElementById('canvas');
             if (!c) return;
+            var vv = window.visualViewport;
+            var vw = (vv && vv.width)  ? vv.width  : window.innerWidth;
+            var vh = (vv && vv.height) ? vv.height : window.innerHeight;
             var dpr = window.devicePixelRatio || 1;
-            var w = Math.round(window.innerWidth  * dpr);
-            var h = Math.round(window.innerHeight * dpr);
-            if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+            var w = Math.round(vw * dpr), h = Math.round(vh * dpr);
+            if (w > 0 && h > 0 && (c.width !== w || c.height !== h)) { c.width = w; c.height = h; }
         }
+        // Rotation on Android settles the viewport asynchronously and in stages, so a
+        // single delayed resize often reads stale (pre-rotation) dimensions. Re-run a
+        // few times after the event to catch the final size.
+        function resizeBurst() { [0, 120, 300, 600].forEach(function (d) { setTimeout(resizeCanvas, d); }); }
         window.addEventListener('resize', resizeCanvas);
-        window.addEventListener('orientationchange', function(){ setTimeout(resizeCanvas, 200); });
+        window.addEventListener('orientationchange', resizeBurst);
+        if (window.visualViewport) window.visualViewport.addEventListener('resize', resizeCanvas);
 
         // ── Start gate (also unlocks audio + goes fullscreen) ─────────────────
         var _started = false;
@@ -203,14 +213,22 @@
             }
             function send()   { cheat((input.value || '').trim()); hide(); }
             function cancel() { cheat(''); hide(); }   // '' releases the keyboard, injects nothing
+            // The prompt is opened from within a button tap (the combo's last press),
+            // so that same finger's touchend/click would otherwise land on the just-
+            // shown backdrop and cancel instantly. Arm the backdrop only after a short
+            // delay so the opening gesture can't close it.
+            var armedAt = 0;
             window.__doomCheatPrompt = function () {
                 input.value = '';
                 panel.classList.add('show');
+                armedAt = Date.now() + 400;
                 try { input.focus(); } catch (e) {}   // Android/desktop; iOS needs a tap on the field
             };
             document.getElementById('cheat-send').addEventListener('click', send);
             document.getElementById('cheat-cancel').addEventListener('click', cancel);
-            panel.addEventListener('click', function (e) { if (e.target === panel) cancel(); });  // tap backdrop = cancel
+            panel.addEventListener('click', function (e) {
+                if (e.target === panel && Date.now() >= armedAt) cancel();   // tap backdrop = cancel
+            });
             // SDL captures keydown at the document level and preventDefaults it, so the
             // field never fills natively — mirror the typed characters ourselves.
             input.addEventListener('keydown', function (e) {
