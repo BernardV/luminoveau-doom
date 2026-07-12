@@ -1,9 +1,12 @@
 // main.cpp — Luminoveau host for DOOM.
 //
-// Owns the window and the frame loop. Each frame it advances Doom one tic
-// (DG_Tic), streams Doom's 320x200 framebuffer into a GPU texture, and blits it
-// to the window (letterboxed to 4:3). Keyboard/mouse events are translated to
-// Doom keycodes and pushed into the Doom event queue.
+// Owns the window and the frame loop. Each frame it advances Doom one tic (DG_Tic)
+// and drives the GPU renderer (DoomRenderPass), which draws the 3D world full-window
+// in real perspective; Doom's software drawing supplies only the 2D HUD/menus,
+// composited on top (see dg_render.c / DoomRenderPass.cpp). The legacy path
+// (DOOM_GPU=0) instead streams Doom's 320x200 software framebuffer into a GPU texture
+// and blits it letterboxed to 4:3. Keyboard/mouse/gamepad/touch events are translated
+// to Doom keycodes/events and pushed into the Doom event queue.
 
 #include "luminoveau.h"
 #include "app/lumi.h"
