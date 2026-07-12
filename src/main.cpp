@@ -379,8 +379,8 @@ static void PollTouch()
 
     // Right-half drag = look: horizontal turns (Doom ev_mouse), vertical pitches
     // the GPU camera (renderer-only). Sensitivities env-overridable.
-    static const float TOUCH_TURN = getenv("DOOM_TOUCH_TURN") ? (float)atof(getenv("DOOM_TOUCH_TURN")) : 0.9f;
-    static const float TOUCH_LOOK = getenv("DOOM_TOUCH_LOOK") ? (float)atof(getenv("DOOM_TOUCH_LOOK")) : 0.006f;
+    static const float TOUCH_TURN = getenv("DOOM_TOUCH_TURN") ? (float)atof(getenv("DOOM_TOUCH_TURN")) : 1.8f;
+    static const float TOUCH_LOOK = getenv("DOOM_TOUCH_LOOK") ? (float)atof(getenv("DOOM_TOUCH_LOOK")) : 0.012f;
     vf2d look = vc.ConsumeLookDelta();
     if (look.x != 0.0f) DG_MouseEvent(g_mouseButtons, (int)(look.x * TOUCH_TURN), 0);
     if (look.y != 0.0f && g_gpuMode) {
@@ -491,7 +491,7 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
         // dimension; DOOM_TOUCH_SCALE multiplies it for taste.
         {
             const float mult = getenv("DOOM_TOUCH_SCALE") ? (float)atof(getenv("DOOM_TOUCH_SCALE")) : 1.0f;
-            vc.SetControlScaleToViewport(0.09f * mult);
+            vc.SetControlScaleToViewport(0.11f * mult);
         }
         // A real touch device also emits synthetic mouse events that mirror each
         // finger — they'd fire the gun on any tap and double-drive look. Ignore the
