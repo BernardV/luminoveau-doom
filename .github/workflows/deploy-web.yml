@@ -33,9 +33,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install toolchain (glslang + ninja + python)
+        # Building Tint configures Dawn's native tree, which does a CMake find_package(X11)
+        # (via FindX11 / find_library, so the Emscripten pkg-config redirection doesn't
+        # apply here — installing the dev libs is enough). GLFW is already disabled in the
+        # shader-transpile patch, so no Wayland deps are needed.
         run: |
           sudo apt-get update
-          sudo apt-get install -y glslang-tools ninja-build python3
+          sudo apt-get install -y glslang-tools ninja-build python3 \
+            libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
 
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
@@ -49,8 +54,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build-web/_deps
-          key: web-deps-v3-${{ hashFiles('CMakeLists.txt', 'patches/**') }}
-          restore-keys: web-deps-v3-
+          key: web-deps-v4-${{ hashFiles('CMakeLists.txt', 'patches/**') }}
+          restore-keys: web-deps-v4-
 
       - name: Configure (emcmake)
         run: >
