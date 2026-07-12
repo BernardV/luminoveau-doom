@@ -85,7 +85,10 @@ if(EMSCRIPTEN)
         # miniaudio's Web Audio glue reads Module.HEAPF32, but emscripten 6.0.2
         # doesn't attach heap views to Module by default -> "reading 'buffer' of
         # undefined" in onaudioprocess. Export them (kept updated across growth).
-        "-sEXPORTED_RUNTIME_METHODS=HEAPF32,HEAPF64,HEAP8,HEAPU8,HEAP16,HEAPU16,HEAP32,HEAPU32")
+        # ccall lets the shell's cheat prompt call DG_QueueCheat with the typed text.
+        "-sEXPORTED_RUNTIME_METHODS=HEAPF32,HEAPF64,HEAP8,HEAPU8,HEAP16,HEAPU16,HEAP32,HEAPU32,ccall"
+        # Keep DG_QueueCheat (called from JS) past dead-code elimination.
+        "-sEXPORTED_FUNCTIONS=_main,_DG_QueueCheat")
 endif()
 
 # ── Assets / packaging ────────────────────────────────────────────────────────

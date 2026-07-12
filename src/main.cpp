@@ -327,6 +327,45 @@ static bool TouchAvailable()
 #endif
 }
 
+// ── Cheat entry (mobile) ─────────────────────────────────────────────────────
+// A secret on-screen button combo opens a text prompt (mobile keyboard); the typed
+// string is queued here and injected as a clean key burst so Doom's cht_CheckCheat
+// sees the letters contiguously (any interleaved key resets its buffer).
+static char          g_cheatBuf[80];
+static volatile bool g_cheatPending = false;
+
+extern "C" void DG_QueueCheat(const char* s)
+{
+    if (!s) return;
+    size_t j = 0;
+    for (; *s && j < sizeof(g_cheatBuf) - 1; ++s) {
+        char c = *s;
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) g_cheatBuf[j++] = c;
+    }
+    g_cheatBuf[j] = 0;
+    g_cheatPending = (j > 0);
+}
+
+// Ask the host to show a cheat text prompt (web: focus a hidden input → keyboard).
+static void DG_CheatPrompt(void)
+{
+#ifdef __EMSCRIPTEN__
+    emscripten_run_script("window.__doomCheatPrompt && window.__doomCheatPrompt()");
+#else
+    fprintf(stderr, "cheat combo entered (type a cheat on the keyboard)\n");
+#endif
+}
+
+// Inject any queued cheat as a contiguous down+up burst. Call BEFORE movement input
+// each frame so no other key lands between the cheat letters in the event queue.
+static void PumpCheatQueue(void)
+{
+    if (!g_cheatPending) return;
+    for (const char* c = g_cheatBuf; *c; ++c) { DG_KeyEvent(1, *c); DG_KeyEvent(0, *c); }
+    g_cheatPending = false;
+}
+
 static void PollTouch()
 {
     if (!g_touch) return;
@@ -355,6 +394,11 @@ static void PollTouch()
         vc.ConsumeLookTap();     // drain taps so a menu tap doesn't fire on resume
         EdgeKey(up,   tMUp,  DG_KEY_UPARROW);
         EdgeKey(down, tMDn,  DG_KEY_DOWNARROW);
+        // Left/right on the disc = menu +/- (slider adjust: sound volume, screen
+        // size, ...). Auto-repeat while held so a value can be swept, not just nudged.
+        static int mLtHold = 0, mRtHold = 0;
+        if (left)  { if (mLtHold % 7 == 0) TapKey(DG_KEY_LEFTARROW);  mLtHold++; } else mLtHold = 0;
+        if (right) { if (mRtHold % 7 == 0) TapKey(DG_KEY_RIGHTARROW); mRtHold++; } else mRtHold = 0;
         EdgeKey(b0,   tEnter, DG_KEY_ENTER);
         EdgeKey(b3,   tEsc,  DG_KEY_ESCAPE);
         EdgeKey(false, tFwd, DG_KEY_UPARROW);   EdgeKey(false, tBack, DG_KEY_DOWNARROW);
@@ -403,6 +447,25 @@ static void PollTouch()
     EdgeKey(b1, tUse,  ' ');
     EdgeKey(b3, tEsc,  DG_KEY_ESCAPE);
     if (b2 && !bPrev[2]) { static int w = 1; w = w % 7 + 1; TapKey('0' + w); }
+
+    // Secret cheat unlock: press USE,USE,WPN,WPN,FIRE,FIRE,USE on the buttons to
+    // open the typed-cheat prompt (indices FIRE=0, USE=1, WPN=2). The button actions
+    // still happen while entering — harmless.
+    {
+        static const int COMBO[7] = {1, 1, 2, 2, 0, 0, 1};
+        static int hist[7] = {-1, -1, -1, -1, -1, -1, -1};
+        bool cur[4] = {b0, b1, b2, b3};
+        for (int i = 0; i < 4; ++i) {
+            if (cur[i] && !bPrev[i]) {                 // rising edge
+                for (int k = 0; k < 6; ++k) hist[k] = hist[k + 1];
+                hist[6] = i;
+                bool match = true;
+                for (int k = 0; k < 7; ++k) if (hist[k] != COMBO[k]) { match = false; break; }
+                if (match) { DG_CheatPrompt(); for (int k = 0; k < 7; ++k) hist[k] = -1; }
+            }
+        }
+    }
+
     bPrev[0]=b0; bPrev[1]=b1; bPrev[2]=b2; bPrev[3]=b3;
 }
 
@@ -516,6 +579,7 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
 
 Lumi::Result AppIterate(void* /*appstate*/)
 {
+    PumpCheatQueue();                  // inject a queued cheat first (clean key burst)
     PollKeyboard();                    // feed keyboard edges into Doom
     if (!g_touchNoMouse) PollMouseButtons();  // mouse buttons (fire = left) — off on touch
     PollGamepad();                     // + gamepad, if one is connected

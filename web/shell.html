@@ -67,6 +67,30 @@
             position:fixed; right:max(10px, env(safe-area-inset-right)); bottom:max(8px, env(safe-area-inset-bottom));
             font-family:monospace; font-size:13px; color:#888; opacity:.7; letter-spacing:.02em;
         }
+        /* Cheat prompt (opened by the secret button combo). */
+        #cheat {
+            position:fixed; inset:0; z-index:20; display:none;
+            align-items:center; justify-content:center; background:rgba(0,0,0,.7);
+            font-family:'Barlow Condensed', sans-serif;
+        }
+        #cheat.show { display:flex; }
+        #cheat .box {
+            background:#111; border:2px solid #e33; border-radius:10px; padding:22px 20px;
+            width:min(88vw, 420px); text-align:center; box-shadow:0 0 40px rgba(230,40,40,.4);
+        }
+        #cheat .box h2 { margin:0 0 .3em; color:#e33; font-size:1.8em; letter-spacing:.08em; }
+        #cheat .box p  { margin:0 0 .8em; color:#bbb; font-size:1em; }
+        #cheat input {
+            width:100%; box-sizing:border-box; font-family:monospace; font-size:1.5em;
+            text-align:center; text-transform:lowercase; padding:.4em; border-radius:6px;
+            border:1px solid #555; background:#000; color:#6f6; outline:none;
+        }
+        #cheat .row { display:flex; gap:10px; margin-top:14px; }
+        #cheat button {
+            flex:1; font-family:inherit; font-size:1.3em; padding:.35em; border:0; border-radius:6px;
+            cursor:pointer; color:#fff;
+        }
+        #cheat .send { background:#e33; } #cheat .cancel { background:#444; }
     </style>
 </head>
 <body>
@@ -78,6 +102,20 @@
     </div>
 
     <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex=-1></canvas>
+
+    <!-- Cheat prompt: opened by the secret button combo (USE USE WPN WPN FIRE FIRE USE). -->
+    <div id="cheat">
+        <div class="box">
+            <h2>CHEAT</h2>
+            <p>Type a code (e.g. iddqd, idkfa, idclip)</p>
+            <input id="cheat-input" type="text" autocomplete="off" autocapitalize="off"
+                   autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="tap to type&hellip;">
+            <div class="row">
+                <button class="cancel" id="cheat-cancel">Cancel</button>
+                <button class="send" id="cheat-send">Send</button>
+            </div>
+        </div>
+    </div>
 
     <script>
         // ── Fullscreen + orientation ──────────────────────────────────────────
@@ -122,6 +160,33 @@
             sg.style.display = 'none';
         }
         document.getElementById('startgame').addEventListener('click', startGame);
+
+        // ── Cheat prompt (invoked from the game via the secret button combo) ──
+        (function () {
+            var panel = document.getElementById('cheat');
+            var input = document.getElementById('cheat-input');
+            function close() { panel.classList.remove('show'); input.value = ''; input.blur();
+                               var c = document.getElementById('canvas'); if (c) c.focus(); }
+            function send() {
+                var v = (input.value || '').trim();
+                if (v && window.Module && Module.ccall) {
+                    try { Module.ccall('DG_QueueCheat', null, ['string'], [v]); } catch (e) {}
+                }
+                close();
+            }
+            // Show the panel; the user taps the field to summon the keyboard (iOS
+            // only opens it inside a user gesture, so we don't force focus there).
+            window.__doomCheatPrompt = function () {
+                panel.classList.add('show');
+                try { input.focus(); } catch (e) {}   // works on Android/desktop
+            };
+            document.getElementById('cheat-send').addEventListener('click', send);
+            document.getElementById('cheat-cancel').addEventListener('click', close);
+            input.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { e.preventDefault(); send(); }
+                else if (e.key === 'Escape') { e.preventDefault(); close(); }
+            });
+        })();
 
         // ── Service worker (installable / offline) ────────────────────────────
         if ('serviceWorker' in navigator && window.isSecureContext) {
