@@ -1,0 +1,77 @@
+name: Deploy web (GitHub Pages)
+
+# Builds the WebAssembly/WebGPU version and publishes it to GitHub Pages.
+# A fresh checkout only contains the freely-distributable shareware doom1.wad, so
+# the published build never carries commercial game data.
+#
+# Enable once in the repo: Settings → Pages → Build and deployment → Source =
+# "GitHub Actions". Then this runs on every push to main (or manually via the
+# "Run workflow" button).
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'patches/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; let a newer push supersede an in-flight one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain (glslang + ninja + python)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslang-tools ninja-build python3
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.2          # match the local toolchain; bump if it drifts
+
+      # Cache the fetched + built dependencies (SDL3, SDL3_image, and the Dawn/Tint
+      # shader-transpiler). The first run builds Tint from Dawn (slow); later runs
+      # restore it. Keyed on the engine pin + our patches so it invalidates on a bump.
+      - name: Cache CMake deps
+        uses: actions/cache@v4
+        with:
+          path: build-web/_deps
+          key: web-deps-${{ hashFiles('CMakeLists.txt', 'patches/**') }}
+          restore-keys: web-deps-
+
+      - name: Configure (emcmake)
+        run: >
+          emcmake cmake -S . -B build-web
+          -DCMAKE_BUILD_TYPE=Release
+          -DLUMINOVEAU_GIT_URL=https://github.com/bXi/luminoveau.git
+
+      - name: Build
+        run: cmake --build build-web -j
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build-web/bin
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
