@@ -407,10 +407,15 @@ static void PollTouch()
         static int mLtHold = 0, mRtHold = 0;
         if (left)  { if (mLtHold % 7 == 0) TapKey(DG_KEY_LEFTARROW);  mLtHold++; } else mLtHold = 0;
         if (right) { if (mRtHold % 7 == 0) TapKey(DG_KEY_RIGHTARROW); mRtHold++; } else mRtHold = 0;
-        EdgeKey(b0,   tEnter, DG_KEY_ENTER);
+        EdgeKey(b0,   tEnter, DG_KEY_ENTER);   // menu confirm
+        // FIRE/USE buttons also drive the fire/use keys so the level-end intermission
+        // and finale advance (they read BT_ATTACK/BT_USE from the ticcmd, not menu
+        // keys) — otherwise the stats screen has no way to continue on touch.
+        EdgeKey(b0,   tFire, DG_KEY_RCTRL);
+        EdgeKey(b1,   tUse,  ' ');
         EdgeKey(b3,   tEsc,  DG_KEY_ESCAPE);
         EdgeKey(false, tFwd, DG_KEY_UPARROW);   EdgeKey(false, tBack, DG_KEY_DOWNARROW);
-        EdgeKey(false, tStrL, ','); EdgeKey(false, tStrR, '.'); EdgeKey(false, tFire, DG_KEY_RCTRL);
+        EdgeKey(false, tStrL, ','); EdgeKey(false, tStrR, '.');
         for (int i = 0; i < 4; i++) bPrev[i] = false;
         return;
     }
