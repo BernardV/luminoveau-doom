@@ -457,7 +457,10 @@ static void PollTouch()
     bool fireHeld = b0 || tapFireHold > 0;
     if (tapFireHold > 0) tapFireHold--;
     EdgeKey(fireHeld, tFire, DG_KEY_RCTRL);
-    EdgeKey(b1, tUse,  ' ');
+    // When dead, respawn reads BT_USE only — so FIRE (and tap-fire) also drives the
+    // use key while dead, letting you respawn by tapping fire.
+    bool dead = DG_PlayerDead() != 0;
+    EdgeKey(b1 || (dead && fireHeld), tUse, ' ');
     EdgeKey(b3, tEsc,  DG_KEY_ESCAPE);
     // Weapon cycle. Doom reads the number key level-triggered in G_BuildTiccmd, so a
     // same-frame down+up (TapKey) is missed — hold the key a few frames instead.

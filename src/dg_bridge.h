@@ -128,6 +128,9 @@ float DG_FlashLevel(void);
 // weapon-cycle to skip weapons not yet picked up.
 int DG_WeaponOwned(int slot);
 
+// Whether the console player is dead (so touch FIRE can also respawn via BT_USE).
+int DG_PlayerDead(void);
+
 // ── Dynamic colored point lights ────────────────────────────────────────────
 // Per-frame lights from projectiles (colored by type) + fullbright decorations.
 // DG_LightCount rebuilds the nearest-N list; DG_Light fills out7 = {x,y,z (engine

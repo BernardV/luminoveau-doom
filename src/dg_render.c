@@ -56,6 +56,12 @@ int DG_WeaponOwned(int slot) {
     return players[consoleplayer].weaponowned[slot - 1] ? 1 : 0;
 }
 
+// Whether the console player is dead (respawn on BT_USE). Lets the touch FIRE button
+// also respawn — P_DeathThink only reads BT_USE, so plain fire wouldn't otherwise.
+int DG_PlayerDead(void) {
+    return players[consoleplayer].playerstate == PST_DEAD;
+}
+
 // ── HUD message + font (drawn by the GPU overlay, on top of the 3D) ──────────
 // The software HUD message lives in screens[0]'s top region, which the GPU 3D
 // draws over, so we mirror it out and re-draw it with Doom's own font.
