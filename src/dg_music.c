@@ -192,6 +192,16 @@ void DG_MusicMix(float* out, unsigned int frames, unsigned int channels)
 
     if (!g_tsf) return;
 
+    // Master music gain. The soundfont renders at unity (0 dB) and a full MUS
+    // arrangement is very hot — far louder per volume-step than the SFX mixer — so
+    // attenuate it hard to balance against SFX. Tunable: DOOM_MUSIC_GAIN.
+    static float musMaster = -1.0f;
+    if (musMaster < 0.0f) {
+        const char* e = getenv("DOOM_MUSIC_GAIN");
+        musMaster = e ? (float)atof(e) : 0.15f;
+        if (musMaster < 0.0f) musMaster = 0.0f;
+    }
+
     // Adopt a pending song change.
     if (g_reqGen != g_ackGen) {
         g_ackGen = g_reqGen;
@@ -204,7 +214,7 @@ void DG_MusicMix(float* out, unsigned int frames, unsigned int channels)
         g_playing    = (g_scoreStart != NULL);
     }
 
-    vol = g_musVol;
+    vol = g_musVol * musMaster;
 
     while (done < frames) {
         unsigned int chunk = frames - done;

@@ -327,6 +327,16 @@ void DG_MixAudio(float* out, unsigned int frames, unsigned int channels, void* u
     int c;
     (void)user;
 
+    // Master SFX gain. Doom's 8-bit samples are quiet and the old fixed 0.5 headroom
+    // made SFX far softer than the (very hot) music path — so boost SFX to balance.
+    // Louder single hits may clip a touch; that's the desired trade. Tunable: DOOM_SFX_GAIN.
+    static float sfxMaster = -1.0f;
+    if (sfxMaster < 0.0f) {
+        const char* e = getenv("DOOM_SFX_GAIN");
+        sfxMaster = e ? (float)atof(e) : 1.6f;
+        if (sfxMaster < 0.0f) sfxMaster = 0.0f;
+    }
+
     for (f = 0; f < frames; f++) {
         float l = 0.0f, r = 0.0f;
         for (c = 0; c < DG_SFX_CHANNELS; c++) {
@@ -340,7 +350,7 @@ void DG_MixAudio(float* out, unsigned int frames, unsigned int channels, void* u
             r += s * g_chan[c].rvol;
             g_chan[c].pos += g_chan[c].rate;
         }
-        l *= 0.5f; r *= 0.5f;   // headroom for up to 8 summed channels
+        l *= sfxMaster; r *= sfxMaster;
         if (l >  1.0f) l =  1.0f; if (l < -1.0f) l = -1.0f;
         if (r >  1.0f) r =  1.0f; if (r < -1.0f) r = -1.0f;
 
