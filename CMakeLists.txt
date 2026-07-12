@@ -11,10 +11,27 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 set(DOOM_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/doom/linuxdoom-1.10")
-set(LUMI_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/vendor/lumi")
 
-# ── Engine ──────────────────────────────────────────────────────────────────
-add_subdirectory("${LUMI_DIR}" "${CMAKE_BINARY_DIR}/luminoveau")
+# ── Engine (Luminoveau) ───────────────────────────────────────────────────────
+# Fetched from upstream at a pinned commit instead of vendored, with our local
+# engine changes applied on top as patches (see patches/). Keeps the engine out of
+# this repo while staying reproducible. To update: bump LUMINOVEAU_GIT_TAG, then
+# regenerate the patches against the new commit — see patches/README.md.
+include(FetchContent)
+set(LUMINOVEAU_GIT_URL "git@github.com:bXi/luminoveau.git"
+    CACHE STRING "Luminoveau engine git remote (override with an https:// URL if you lack SSH keys)")
+set(LUMINOVEAU_GIT_TAG "c306a73050e565077447c97aa581e246ce62e484"
+    CACHE STRING "Luminoveau engine pinned commit")
+set(LUMINOVEAU_PATCHES
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/luminoveau-virtualcontrols-touch.patch"
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/luminoveau-input-no-gamepad.patch"
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/luminoveau-shader-transpile.patch")
+FetchContent_Declare(luminoveau
+    GIT_REPOSITORY "${LUMINOVEAU_GIT_URL}"
+    GIT_TAG        "${LUMINOVEAU_GIT_TAG}"
+    # Apply our local engine changes; idempotent so a re-configure doesn't re-error.
+    PATCH_COMMAND  bash "${CMAKE_CURRENT_SOURCE_DIR}/patches/apply.sh" ${LUMINOVEAU_PATCHES})
+FetchContent_MakeAvailable(luminoveau)
 
 # ── Doom core (original C sources, minus the platform files we replace) ───────
 file(GLOB DOOM_SOURCES "${DOOM_SRC_DIR}/*.c")
