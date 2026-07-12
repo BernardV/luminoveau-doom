@@ -1,6 +1,7 @@
 #include "platform/input/virtualcontrols.h"
 #include "platform/window/window.h"
 #include <cmath>
+#include <algorithm>
 
 #include "draw/draw.h"
 #include "draw/text.h"
@@ -103,17 +104,44 @@ void VirtualControls::InitializeDefaultTexture() {
 void VirtualControls::Update() {
     if (!m_enabled) return;
 
+    // Rotation / window resize: re-fit viewport-relative controls.
+    if (m_relJoystickFrac > 0.0f && (viewW() != m_lastViewW || viewH() != m_lastViewH))
+        ApplyViewportScale();
+
     UpdateJoystick();
     if (m_mouseEmulation) UpdateMouse();
     UpdateButtons();
 }
 
 void VirtualControls::SetControlScale(float scale) {
+    m_relJoystickFrac = 0.0f;   // explicit absolute scale disables viewport mode
     m_controlScale = (scale > 0.0f) ? scale : 1.0f;
     // Recompute cm-derived geometry with the new scale.
     m_joystickRadius = cm(3.0f);
     m_joystickOffset = {cm(4.5f), -cm(4.5f)};
     LayoutButtons();
+}
+
+void VirtualControls::SetControlScaleToViewport(float joystickFraction) {
+    m_relJoystickFrac = (joystickFraction > 0.0f) ? joystickFraction : 0.0f;
+    ApplyViewportScale();
+}
+
+void VirtualControls::ApplyViewportScale() {
+    if (m_relJoystickFrac <= 0.0f) return;
+    float minDim = std::min(viewW(), viewH());
+    if (minDim <= 0.0f) return;
+    // cm(3.0) is the joystick radius at scale 1.0; pick the scale that makes it
+    // m_relJoystickFrac * minDim. Because cm() includes the (unreliable) display
+    // scale, this cancels it out — the result is purely viewport-relative.
+    m_controlScale = 1.0f;
+    float base = cm(3.0f);
+    m_controlScale = (base > 0.0f) ? (m_relJoystickFrac * minDim / base) : 1.0f;
+    m_joystickRadius = cm(3.0f);
+    m_joystickOffset = {cm(4.5f), -cm(4.5f)};
+    LayoutButtons();
+    m_lastViewW = viewW();
+    m_lastViewH = viewH();
 }
 
 void VirtualControls::HandleTouchEvent(const SDL_Event *event) {

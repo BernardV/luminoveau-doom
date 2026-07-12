@@ -210,6 +210,19 @@ public:
     void SetControlScale(float scale);
 
     /**
+     * @brief Size the controls as a fraction of the viewport, ignoring DPI.
+     *
+     * cm-based sizing depends on the reported display scale, which is unreliable
+     * on some backends (e.g. WebGPU on mobile Safari reports a huge value, making
+     * the controls cover the screen). This sizes the joystick radius to
+     * @p joystickFraction * min(viewW, viewH) and derives everything else from the
+     * default cm ratios, so the controls are always a sensible fraction of the
+     * screen. Recomputed automatically when the viewport size changes (rotation).
+     * @param joystickFraction e.g. 0.10; <=0 disables (back to cm/SetControlScale).
+     */
+    void SetControlScaleToViewport(float joystickFraction);
+
+    /**
      * @brief Enable/disable driving the controls with the mouse (desktop testing).
      *
      * On a real touch device the browser also emits synthetic mouse events that
@@ -281,6 +294,10 @@ private:
 
     // Uniform size multiplier for all controls (1.0 = default cm sizing).
     float m_controlScale = 1.0f;
+    // Viewport-relative sizing: joystick radius as a fraction of min(view) when >0.
+    float m_relJoystickFrac = 0.0f;
+    float m_lastViewW = 0.0f, m_lastViewH = 0.0f;
+    void ApplyViewportScale();   ///< Recompute m_controlScale from the viewport.
     // Drive controls with the mouse (desktop test). Off on real touch devices.
     bool m_mouseEmulation = true;
     float viewW() const;   ///< Active-space window width (logical or physical).

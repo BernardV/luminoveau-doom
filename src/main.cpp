@@ -476,10 +476,13 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
         vc.SetButtonLabel(1, "USE");
         vc.SetButtonLabel(2, "WPN");
         vc.SetButtonLabel(3, "MENU");
-        // The default cm sizes are tablet-scale; shrink for phones (tunable).
+        // Size controls as a fraction of the viewport (DPI-independent): the cm-based
+        // sizing is unreliable on mobile Safari/WebGPU (reports a huge display scale,
+        // so buttons cover the screen). Joystick radius ≈9% of the smaller viewport
+        // dimension; DOOM_TOUCH_SCALE multiplies it for taste.
         {
-            const float sc = getenv("DOOM_TOUCH_SCALE") ? (float)atof(getenv("DOOM_TOUCH_SCALE")) : 0.5f;
-            vc.SetControlScale(sc);
+            const float mult = getenv("DOOM_TOUCH_SCALE") ? (float)atof(getenv("DOOM_TOUCH_SCALE")) : 1.0f;
+            vc.SetControlScaleToViewport(0.09f * mult);
         }
         // A real touch device also emits synthetic mouse events that mirror each
         // finger — they'd fire the gun on any tap and double-drive look. Ignore the
