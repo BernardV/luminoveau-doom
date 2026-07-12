@@ -146,6 +146,7 @@ static int SdlKeyToDoom(SDL_Keycode kc)
 
 static int   g_mouseButtons = 0;
 static bool  g_touchNoMouse = false;  // real touch device: ignore mouse (touch emits synthetic clicks)
+static volatile bool g_kbSuppress = false;  // cheat prompt owns the keyboard: don't feed Doom live
 static bool  g_gpuMode = false;   // GPU renderer active (enables mouselook)
 static float g_pitch   = 0.0f;    // look up/down angle, radians
 static bool  g_touch   = false;   // on-screen touch controls active (mobile/web)
@@ -162,6 +163,11 @@ static void PollKeyboard()
     const bool* ks = SDL_GetKeyboardState(&n);
     if (!ks) return;
     if (n > SDL_SCANCODE_COUNT) n = SDL_SCANCODE_COUNT;
+
+    // While the cheat prompt is open it owns the keyboard: keep prev[] in sync but
+    // forward nothing to Doom, so typing in the box doesn't also drive the game
+    // (the typed cheat is injected once, cleanly, when the user taps Send).
+    if (g_kbSuppress) { for (int sc = 0; sc < n; ++sc) prev[sc] = ks[sc]; return; }
 
     for (int sc = 0; sc < n; ++sc) {
         if (ks[sc] == prev[sc]) continue;
@@ -345,11 +351,13 @@ extern "C" void DG_QueueCheat(const char* s)
     }
     g_cheatBuf[j] = 0;
     g_cheatPending = (j > 0);
+    g_kbSuppress = false;    // prompt closed (Send/Cancel): hand the keyboard back
 }
 
 // Ask the host to show a cheat text prompt (web: focus a hidden input → keyboard).
 static void DG_CheatPrompt(void)
 {
+    g_kbSuppress = true;     // the prompt owns the keyboard until Send/Cancel
 #ifdef __EMSCRIPTEN__
     emscripten_run_script("window.__doomCheatPrompt && window.__doomCheatPrompt()");
 #else

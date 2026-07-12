@@ -165,26 +165,35 @@
         (function () {
             var panel = document.getElementById('cheat');
             var input = document.getElementById('cheat-input');
-            function close() { panel.classList.remove('show'); input.value = ''; input.blur();
-                               var c = document.getElementById('canvas'); if (c) c.focus(); }
-            function send() {
-                var v = (input.value || '').trim();
-                if (v && window.Module && Module.ccall) {
-                    try { Module.ccall('DG_QueueCheat', null, ['string'], [v]); } catch (e) {}
+            function cheat(v) {   // hand the typed string (or '' to just close) to the game
+                if (window.Module && Module.ccall) {
+                    try { Module.ccall('DG_QueueCheat', null, ['string'], [v || '']); } catch (e) {}
                 }
-                close();
             }
-            // Show the panel; the user taps the field to summon the keyboard (iOS
-            // only opens it inside a user gesture, so we don't force focus there).
+            function hide() {
+                panel.classList.remove('show'); input.value = ''; input.blur();
+                var c = document.getElementById('canvas'); if (c) c.focus();
+            }
+            function send()   { cheat((input.value || '').trim()); hide(); }
+            function cancel() { cheat(''); hide(); }   // '' releases the keyboard, injects nothing
             window.__doomCheatPrompt = function () {
+                input.value = '';
                 panel.classList.add('show');
-                try { input.focus(); } catch (e) {}   // works on Android/desktop
+                try { input.focus(); } catch (e) {}   // Android/desktop; iOS needs a tap on the field
             };
             document.getElementById('cheat-send').addEventListener('click', send);
-            document.getElementById('cheat-cancel').addEventListener('click', close);
+            document.getElementById('cheat-cancel').addEventListener('click', cancel);
+            panel.addEventListener('click', function (e) { if (e.target === panel) cancel(); });  // tap backdrop = cancel
+            // SDL captures keydown at the document level and preventDefaults it, so the
+            // field never fills natively — mirror the typed characters ourselves.
             input.addEventListener('keydown', function (e) {
-                if (e.key === 'Enter') { e.preventDefault(); send(); }
-                else if (e.key === 'Escape') { e.preventDefault(); close(); }
+                if (e.key === 'Enter')       { e.preventDefault(); send();   return; }
+                if (e.key === 'Escape')      { e.preventDefault(); cancel(); return; }
+                if (e.key === 'Backspace')   { e.preventDefault(); input.value = input.value.slice(0, -1); return; }
+                if (e.key && e.key.length === 1 && /[a-z0-9]/i.test(e.key)) {
+                    e.preventDefault();
+                    if (input.value.length < 24) input.value += e.key.toLowerCase();
+                }
             });
         })();
 
