@@ -109,11 +109,12 @@ static channel_t*	channels;
 
 // These are not used, but should be (menu).
 // Maximum volume of a sound effect.
-// Internal default is max out of 0-15.
-int 		snd_SfxVolume = 15;
+// Internal default is max out of 0-15. (Config table in m_misc.c overrides these
+// on load; kept in sync so a run without a config still uses the same balance.)
+int 		snd_SfxVolume = 13;
 
-// Maximum volume of music. Useless so far.
-int 		snd_MusicVolume = 15; 
+// Maximum volume of music — lower than SFX by default so it sits under the action.
+int 		snd_MusicVolume = 4;
 
 
 
