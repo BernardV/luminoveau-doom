@@ -251,6 +251,13 @@ public:
      */
     bool IsLookActive() const { return m_lookActive; }
 
+    /**
+     * @brief Consume a "tap" in the look region: a press+release that barely moved
+     *        (as opposed to a drag/swipe). Useful for tap-to-fire while the same
+     *        region also does drag-to-look. Returns true once per tap, then clears.
+     */
+    bool ConsumeLookTap();
+
     // === State Queries ===
     /**
      * @brief Get the joystick state
@@ -309,6 +316,9 @@ private:
     SDL_FingerID m_lookFinger = static_cast<SDL_FingerID>(-1);
     vf2d m_lookLast{0.0f, 0.0f};
     vf2d m_lookAccum{0.0f, 0.0f};
+    vf2d m_lookStart{0.0f, 0.0f};    ///< Where the current look touch began.
+    float m_lookMaxDist2 = 0.0f;     ///< Max squared travel from start (tap vs drag).
+    bool m_lookTap = false;          ///< A tap (barely-moved press+release) is pending.
     bool IsInLookRegion(const vf2d &pos) const;   ///< Right half, and look enabled.
 
 #ifdef LUMINOVEAU_WITH_IMGUI

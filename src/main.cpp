@@ -352,6 +352,7 @@ static void PollTouch()
 
     if (ui) {
         vc.ConsumeLookDelta();   // drain look so it doesn't jump on resume
+        vc.ConsumeLookTap();     // drain taps so a menu tap doesn't fire on resume
         EdgeKey(up,   tMUp,  DG_KEY_UPARROW);
         EdgeKey(down, tMDn,  DG_KEY_DOWNARROW);
         EdgeKey(b0,   tEnter, DG_KEY_ENTER);
@@ -391,7 +392,14 @@ static void PollTouch()
         DG_SetPitch(g_pitch);
     }
 
-    EdgeKey(b0, tFire, DG_KEY_RCTRL);
+    // Fire: the FIRE button (held) OR a tap in the look region. A tap holds fire for
+    // a few frames so the level-triggered attack registers on at least one tic (a
+    // same-frame down+up can be missed). A swipe/look does NOT fire (only taps).
+    static int tapFireHold = 0;
+    if (vc.ConsumeLookTap()) tapFireHold = 3;
+    bool fireHeld = b0 || tapFireHold > 0;
+    if (tapFireHold > 0) tapFireHold--;
+    EdgeKey(fireHeld, tFire, DG_KEY_RCTRL);
     EdgeKey(b1, tUse,  ' ');
     EdgeKey(b3, tEsc,  DG_KEY_ESCAPE);
     if (b2 && !bPrev[2]) { static int w = 1; w = w % 7 + 1; TapKey('0' + w); }

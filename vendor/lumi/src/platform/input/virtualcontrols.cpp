@@ -183,6 +183,8 @@ void VirtualControls::HandleTouchEvent(const SDL_Event *event) {
                     m_lookActive = true;
                     m_lookFinger = fingerID;
                     m_lookLast = touchPos;
+                    m_lookStart = touchPos;
+                    m_lookMaxDist2 = 0.0f;
                 }
             }
             break;
@@ -204,6 +206,9 @@ void VirtualControls::HandleTouchEvent(const SDL_Event *event) {
             if (m_lookActive && m_lookFinger == fingerID) {
                 m_lookAccum = m_lookAccum + (touchPos - m_lookLast);
                 m_lookLast = touchPos;
+                vf2d off = touchPos - m_lookStart;
+                float d2 = off.x * off.x + off.y * off.y;
+                if (d2 > m_lookMaxDist2) m_lookMaxDist2 = d2;
             }
 
             // Check if finger moved off any button it was pressing
@@ -239,8 +244,11 @@ void VirtualControls::HandleTouchEvent(const SDL_Event *event) {
                 m_joystick.activeFinger = -1;
             }
 
-            // Release the look region if owned by this finger
+            // Release the look region if owned by this finger. If the touch barely
+            // moved, it was a tap (not a swipe) → flag it for tap-to-fire.
             if (m_lookActive && m_lookFinger == fingerID) {
+                float thr = 0.04f * std::min(viewW(), viewH());
+                if (m_lookMaxDist2 <= thr * thr) m_lookTap = true;
                 m_lookActive = false;
                 m_lookFinger = static_cast<SDL_FingerID>(-1);
             }
@@ -303,10 +311,16 @@ void VirtualControls::UpdateMouse() {
         // Look region via mouse (right half, not on a button): drag = camera delta.
         if (m_lookEnabled && !m_joystick.isActive && IsInLookRegion(mousePos)
             && GetButtonAtPosition(mousePos) < 0) {
-            if (!m_lookActive) { m_lookActive = true; m_lookFinger = MOUSE_FINGER_ID; m_lookLast = mousePos; }
+            if (!m_lookActive) {
+                m_lookActive = true; m_lookFinger = MOUSE_FINGER_ID; m_lookLast = mousePos;
+                m_lookStart = mousePos; m_lookMaxDist2 = 0.0f;
+            }
             else if (m_lookFinger == MOUSE_FINGER_ID) {
                 m_lookAccum = m_lookAccum + (mousePos - m_lookLast);
                 m_lookLast = mousePos;
+                vf2d off = mousePos - m_lookStart;
+                float d2 = off.x * off.x + off.y * off.y;
+                if (d2 > m_lookMaxDist2) m_lookMaxDist2 = d2;
             }
         }
         
@@ -346,8 +360,10 @@ void VirtualControls::UpdateMouse() {
             }
         }
 
-        // Release the look region if the mouse owned it
+        // Release the look region if the mouse owned it; barely-moved = tap.
         if (m_lookActive && m_lookFinger == MOUSE_FINGER_ID) {
+            float thr = 0.04f * std::min(viewW(), viewH());
+            if (m_lookMaxDist2 <= thr * thr) m_lookTap = true;
             m_lookActive = false;
             m_lookFinger = static_cast<SDL_FingerID>(-1);
         }
@@ -583,6 +599,12 @@ vf2d VirtualControls::ConsumeLookDelta() {
     vf2d d = m_lookAccum;
     m_lookAccum = {0.0f, 0.0f};
     return d;
+}
+
+bool VirtualControls::ConsumeLookTap() {
+    bool t = m_lookTap;
+    m_lookTap = false;
+    return t;
 }
 
 void VirtualControls::SetButtonLabel(int buttonIndex, const std::string &label) {
