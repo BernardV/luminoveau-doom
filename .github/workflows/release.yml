@@ -1,0 +1,134 @@
+name: Release (macOS + Windows + Linux + Web)
+
+# Builds every platform. Each run uploads the results as downloadable workflow
+# artifacts; pushing a version tag (e.g. v0.1) also attaches them to a GitHub
+# Release. A fresh checkout carries only the shareware doom1.wad, so releases ship
+# no commercial game data.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write        # create/update the Release on a tag
+
+jobs:
+  # ── macOS (.app bundle) ─────────────────────────────────────────────────────
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Cache CMake deps
+        uses: actions/cache@v6
+        with:
+          path: build-mac/_deps
+          key: mac-deps-${{ hashFiles('CMakeLists.txt', 'patches/**') }}
+          restore-keys: mac-deps-
+      - name: Build
+        run: |
+          cmake -S . -B build-mac -DCMAKE_BUILD_TYPE=Release \
+            -DLUMINOVEAU_GIT_URL=https://github.com/bXi/luminoveau.git
+          cmake --build build-mac -j
+      - name: Package
+        run: cd build-mac/bin && zip -qry doom-macos.zip doom.app
+      - uses: actions/upload-artifact@v7
+        with: { name: doom-macos, path: build-mac/bin/doom-macos.zip }
+      - if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with: { files: build-mac/bin/doom-macos.zip }
+
+  # ── Windows (mingw-w64 cross-compile) ───────────────────────────────────────
+  windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install mingw-w64
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64 ninja-build
+      - name: Cache CMake deps
+        uses: actions/cache@v6
+        with:
+          path: build-win/_deps
+          key: win-deps-${{ hashFiles('CMakeLists.txt', 'patches/**') }}
+          restore-keys: win-deps-
+      - name: Build
+        run: |
+          cmake -S . -B build-win -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_TOOLCHAIN_FILE=toolchain-mingw.cmake \
+            -DLUMINOVEAU_GIT_URL=https://github.com/bXi/luminoveau.git
+          cmake --build build-win -j
+      - name: Bundle runtime DLLs + package
+        run: |
+          BIN=build-win/bin
+          for d in libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll; do
+            f=$(find /usr/lib/gcc/x86_64-w64-mingw32 /usr/x86_64-w64-mingw32 -name "$d" 2>/dev/null | head -1)
+            [ -n "$f" ] && cp "$f" "$BIN/"
+          done
+          x86_64-w64-mingw32-strip "$BIN/doom.exe" || true
+          (cd build-win && zip -qry doom-windows.zip bin)
+      - uses: actions/upload-artifact@v7
+        with: { name: doom-windows, path: build-win/doom-windows.zip }
+      - if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with: { files: build-win/doom-windows.zip }
+
+  # ── Linux (native) ──────────────────────────────────────────────────────────
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build \
+            libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libwayland-dev wayland-protocols libxkbcommon-dev libgl1-mesa-dev pkg-config
+      - name: Cache CMake deps
+        uses: actions/cache@v6
+        with:
+          path: build-linux/_deps
+          key: linux-deps-${{ hashFiles('CMakeLists.txt', 'patches/**') }}
+          restore-keys: linux-deps-
+      - name: Build
+        run: |
+          cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release \
+            -DLUMINOVEAU_GIT_URL=https://github.com/bXi/luminoveau.git
+          cmake --build build-linux -j
+      - name: Package
+        run: cd build-linux/bin && zip -qry doom-linux.zip .
+      - uses: actions/upload-artifact@v7
+        with: { name: doom-linux, path: build-linux/bin/doom-linux.zip }
+      - if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with: { files: build-linux/bin/doom-linux.zip }
+
+  # ── Web (WASM/WebGPU, zipped for download) ──────────────────────────────────
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install toolchain (clang + glslang + ninja + X11 for Dawn/Tint)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang clang-tools glslang-tools ninja-build python3 \
+            libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+      - uses: mymindstorm/setup-emsdk@v16
+        with: { version: 6.0.2 }
+      - name: Cache CMake deps
+        uses: actions/cache@v6
+        with:
+          path: build-web/_deps
+          key: web-deps-v6-${{ hashFiles('CMakeLists.txt', 'patches/**') }}
+          restore-keys: web-deps-v6-
+      - name: Build
+        run: |
+          emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release \
+            -DLUMINOVEAU_GIT_URL=https://github.com/bXi/luminoveau.git
+          cmake --build build-web -j
+      - name: Package
+        run: cd build-web/bin && zip -qry doom-web.zip .
+      - uses: actions/upload-artifact@v7
+        with: { name: doom-web, path: build-web/bin/doom-web.zip }
+      - if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with: { files: build-web/bin/doom-web.zip }
