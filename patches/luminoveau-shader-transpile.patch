@@ -1,5 +1,5 @@
 diff --git a/cmake/ShaderTranspile.cmake b/cmake/ShaderTranspile.cmake
-index 754e117..d25f960 100644
+index 754e117..70ac3c5 100644
 --- a/cmake/ShaderTranspile.cmake
 +++ b/cmake/ShaderTranspile.cmake
 @@ -70,6 +70,12 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
@@ -15,7 +15,13 @@ index 754e117..d25f960 100644
              lumi_msg("Fetching Dawn dependencies...")
              execute_process(
                  COMMAND ${Python3_EXECUTABLE}
-@@ -130,6 +136,11 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
+@@ -127,9 +133,17 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
+                 -G Ninja
+                 ${_HOST_COMPILER_ARGS}
+                 -DCMAKE_BUILD_TYPE=Release
++                # Dawn has a C++20-modules target; GCC + Ninja on CI can't scan the
++                # module import graph. We only need the tint CLI, so disable scanning.
++                -DCMAKE_CXX_SCAN_FOR_MODULES=OFF
                  -DDAWN_BUILD_SAMPLES=OFF
                  -DDAWN_BUILD_TESTS=OFF
                  -DDAWN_BUILD_BENCHMARKS=OFF
@@ -27,7 +33,7 @@ index 754e117..d25f960 100644
                  -DTINT_BUILD_TESTS=OFF
                  -DTINT_BUILD_FUZZERS=OFF
                  -DTINT_BUILD_BENCHMARKS=OFF
-@@ -139,6 +150,10 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
+@@ -139,6 +153,10 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
                  -DTINT_BUILD_GLSL_WRITER=OFF
                  -DTINT_BUILD_HLSL_WRITER=OFF
                  -DTINT_BUILD_MSL_WRITER=OFF
@@ -38,7 +44,7 @@ index 754e117..d25f960 100644
              RESULT_VARIABLE _configure_result
              OUTPUT_QUIET
          )
-@@ -164,12 +179,16 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
+@@ -164,12 +182,16 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
      endif()
  endif()
  
