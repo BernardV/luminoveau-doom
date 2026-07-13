@@ -53,7 +53,9 @@ jobs:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: build-mac/bin/doom-macos.zip
 
-  # ── Windows (mingw-w64 cross-compile) ───────────────────────────────────────
+  # ── Windows (mingw-w64 cross-compile, static) ───────────────────────────────
+  # Statically links libgcc/libstdc++/winpthread (-static) so the exe ships with no
+  # runtime DLLs.
   windows:
     if: ${{ github.event.inputs.only == '' || github.event.inputs.only == 'windows' }}
     runs-on: ubuntu-latest
@@ -69,30 +71,17 @@ jobs:
           restore-keys: win-deps-
       - name: Build
         run: |
-          set -o pipefail
           cmake -S . -B build-win -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_TOOLCHAIN_FILE=toolchain-mingw.cmake \
-            -DLUMINOVEAU_GIT_URL=https://github.com/bXi/luminoveau.git || {
-              echo "::group::SDL3_image sub-build logs"
-              find build-win -path '*sdl3_image*' -name '*.log' 2>/dev/null | while read L; do
-                echo "===== $L ====="; tail -80 "$L"; echo
-              done
-              echo "----- any CMake logs mentioning an error -----"
-              find build-win -name 'CMake*.log' 2>/dev/null | while read L; do
-                grep -qiE 'error|failed' "$L" && { echo "===== $L ====="; tail -40 "$L"; echo; }
-              done
-              echo "::endgroup::"
-              exit 1
-            }
+            -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++" \
+            -DLUMINOVEAU_GIT_URL=https://github.com/bXi/luminoveau.git
           cmake --build build-win -j 2
-      - name: Bundle runtime DLLs + package
+      - name: Package (static → no DLLs)
         run: |
           BIN=build-win/bin
-          for d in libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll; do
-            f=$(find /usr/lib/gcc/x86_64-w64-mingw32 /usr/x86_64-w64-mingw32 -name "$d" 2>/dev/null | head -1)
-            [ -n "$f" ] && cp "$f" "$BIN/"
-          done
           x86_64-w64-mingw32-strip "$BIN/doom.exe" || true
+          rm -f "$BIN"/*.dll "$BIN/.DS_Store" 2>/dev/null || true
+          echo "--- bin contents ---"; ls -la "$BIN"
           (cd build-win && zip -qry doom-windows.zip bin)
       - uses: actions/upload-artifact@v7
         with: { name: doom-windows, path: build-win/doom-windows.zip }

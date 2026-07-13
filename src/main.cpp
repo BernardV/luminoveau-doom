@@ -13,12 +13,16 @@
 
 #include <SDL3/SDL.h>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#endif
+#ifdef _WIN32
+#include <fcntl.h>     // _fmode, _O_BINARY
 #endif
 
 extern "C" {
@@ -506,9 +510,20 @@ static void PollTouch()
 
 Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
 {
+#ifdef _WIN32
+    // Windows opens files in text mode by default, which corrupts binary WAD reads —
+    // force binary mode globally. And unbuffer stdout/stderr so Doom's own printf
+    // output (banner, W_Init, any I_Error) is visible even if the process then dies,
+    // instead of being lost in a full buffer.
+    _fmode = _O_BINARY;
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+#endif
     Window::InitWindow("DOOM — Luminoveau", 960, 600, 1, SDL_WINDOW_RESIZABLE);
     Renderer::ClearBackground({0, 0, 0, 255});
+    LOG_INFO("DOOM: window+GPU ready, initializing audio…");
     Audio::Init();   // not done by InitWindow; needed before the PCM mixer
+    LOG_INFO("DOOM: audio initialized");
 
     // Doom locates its IWAD with raw fopen/access, not PhysFS, and the working
     // directory can't be relied on (a macOS .app launched via `open` starts in
