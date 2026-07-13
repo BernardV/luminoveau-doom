@@ -1,5 +1,8 @@
 # DOOM on Luminoveau
 
+[![Play in browser](https://img.shields.io/badge/play-in%20browser-e33)](https://bernardv.github.io/luminoveau-doom/)
+[![Web deploy](https://github.com/BernardV/luminoveau-doom/actions/workflows/deploy-web.yml/badge.svg)](https://github.com/BernardV/luminoveau-doom/actions/workflows/deploy-web.yml)
+
 A port of id Software's **DOOM** (the 1997 `linuxdoom-1.10` source release) to the
 [**Luminoveau**](https://github.com/bXi/luminoveau) game engine, with the classic
 software 3D renderer **replaced by a GPU renderer** and a set of modern comforts:
@@ -7,11 +10,33 @@ widescreen full-window rendering, smooth or crisp texturing, bloom / tonemap /
 vignette, dynamic coloured lights, mouselook, gamepad support, and a full
 **touch-control layer** that turns the web build into an installable mobile PWA.
 
-Runs on **macOS**, **Web (WebAssembly + WebGPU)**, and **Windows** (cross-compiled).
+Runs on **macOS**, **Linux**, and the **Web (WebAssembly + WebGPU)**; a **Windows**
+cross-compile builds but isn't in the release yet.
 
 > This is a source port for study and fun. It bundles only the **freely
 > distributable shareware IWAD** (`doom1.wad`, episode 1); for the full game you
 > supply your own commercial IWAD (see [Game data](#game-data)).
+
+---
+
+## Play & download
+
+- **Play in your browser:** **[bernardv.github.io/luminoveau-doom](https://bernardv.github.io/luminoveau-doom/)**
+  — needs a WebGPU browser (Chrome / Edge, or Safari 17.4+). Tap/click to start; on a
+  phone use "Add to Home Screen" for a fullscreen, installable PWA.
+- **Download a build:** the latest [**Releases**](https://github.com/BernardV/luminoveau-doom/releases)
+  have `doom-macos.zip`, `doom-linux.zip` and `doom-web.zip`. (A Windows build is in
+  progress.)
+
+Every build ships shareware episode 1 and is playable out of the box; drop your own
+IWAD in for the full game (see [Game data](#game-data)).
+
+### How it's built
+
+- **Web** deploys to GitHub Pages automatically on every push to `main`.
+- **Releases** (macOS / Linux / Web zips) are built only when a version tag `vX.Y`
+  is pushed, and attached to the GitHub Release. The engine is fetched + patched at
+  build time, so a fresh checkout builds without vendored engine sources.
 
 ---
 
