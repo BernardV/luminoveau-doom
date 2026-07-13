@@ -26,6 +26,11 @@ rcsid[] = "$Id: g_game.c,v 1.8 1997/02/03 22:45:09 b1 Exp $";
 
 #include <string.h>
 #include <stdlib.h>
+#ifdef __EMSCRIPTEN__
+// Forward-declare instead of including <emscripten.h>: that header pulls in
+// <stdbool.h>, whose true/false macros break Doom's `enum {false,true} boolean`.
+extern void emscripten_run_script(const char* script);
+#endif
 
 #include "doomdef.h" 
 #include "doomstat.h"
@@ -1311,11 +1316,15 @@ void G_DoSaveGame (void)
     length = save_p - savebuffer; 
     if (length > SAVEGAMESIZE) 
 	I_Error ("Savegame buffer overrun"); 
-    M_WriteFile (name, savebuffer, length); 
-    gameaction = ga_nothing; 
-    savedescription[0] = 0;		 
-	 
-    players[consoleplayer].message = GGSAVED; 
+    M_WriteFile (name, savebuffer, length);
+    gameaction = ga_nothing;
+    savedescription[0] = 0;
+#ifdef __EMSCRIPTEN__
+    // Flush the IDBFS-mounted /saves to IndexedDB so the save survives a reload.
+    emscripten_run_script("if(typeof FS!=='undefined')FS.syncfs(false,function(){})");
+#endif
+
+    players[consoleplayer].message = GGSAVED;
 
     // draw the pattern into the back screen
     R_FillBackScreen ();	

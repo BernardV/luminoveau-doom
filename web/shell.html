@@ -358,6 +358,19 @@
             _addRunDep("bixxyengine_init_delay");
             if (_autoStartPending) _removeRunDep("bixxyengine_init_delay");
         });
+        // Persistent savegames: mount /saves on IndexedDB (IDBFS) and load its contents
+        // in before the game starts. Doom writes savegames to /saves (see SAVEGAMENAME)
+        // and flushes back to IndexedDB after each save, so they survive a reload.
+        Module.preRun.push(function() {
+            try {
+                FS.mkdir('/saves');
+                FS.mount(IDBFS, {}, '/saves');
+                addRunDependency('syncfs-saves');
+                FS.syncfs(true, function() { removeRunDependency('syncfs-saves'); });
+            } catch (e) {
+                console.warn('Persistent saves unavailable (IDBFS):', e);
+            }
+        });
     </script>
     {{{ SCRIPT }}}
 </body>

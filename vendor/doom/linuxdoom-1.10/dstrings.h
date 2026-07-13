@@ -38,7 +38,13 @@
 #endif
 
 // Misc. other strings.
+// On the web, savegames go under /saves, which the host mounts on IndexedDB (IDBFS)
+// so they persist across reloads; elsewhere they stay in the working directory.
+#ifdef __EMSCRIPTEN__
+#define SAVEGAMENAME	"/saves/doomsav"
+#else
 #define SAVEGAMENAME	"doomsav"
+#endif
 
 
 //
