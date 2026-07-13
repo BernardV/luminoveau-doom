@@ -23,6 +23,13 @@
 #endif
 #ifdef _WIN32
 #include <fcntl.h>     // _fmode, _O_BINARY
+// Force the discrete GPU on hybrid systems (Intel/AMD iGPU + discrete card): without
+// these the Vulkan loader may enumerate the integrated GPU first, which on some boxes
+// has limited format/memory support. (Same trick the lumiQuake port uses.)
+extern "C" {
+    __declspec(dllexport) unsigned long NvOptimusEnablement                  = 1;
+    __declspec(dllexport) int           AmdPowerXpressRequestHighPerformance = 1;
+}
 #endif
 
 extern "C" {
