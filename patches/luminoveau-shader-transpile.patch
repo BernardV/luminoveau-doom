@@ -1,5 +1,5 @@
 diff --git a/cmake/ShaderTranspile.cmake b/cmake/ShaderTranspile.cmake
-index 754e117..70ac3c5 100644
+index 754e117..ccbce68 100644
 --- a/cmake/ShaderTranspile.cmake
 +++ b/cmake/ShaderTranspile.cmake
 @@ -70,6 +70,12 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
@@ -15,7 +15,25 @@ index 754e117..70ac3c5 100644
              lumi_msg("Fetching Dawn dependencies...")
              execute_process(
                  COMMAND ${Python3_EXECUTABLE}
-@@ -127,9 +133,17 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
+@@ -94,11 +100,14 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
+         # When cross-compiling, CMAKE_C/CXX_COMPILER point to emcc.
+         # We need the native compiler instead.
+         if(EMSCRIPTEN)
+-            # Try to find the native compiler
+-            find_program(_NATIVE_CC NAMES cc gcc clang cl
++            # Try to find the native compiler. Prefer clang: recent Dawn has a C++20
++            # module target and only clang (+ clang-scan-deps) can discover the module
++            # import graph — GCC can't, so the host configure fails. clang is also what
++            # macOS uses, so this keeps the host build on the proven compiler.
++            find_program(_NATIVE_CC NAMES clang cc gcc cl
+                 PATHS /usr/bin /usr/local/bin
+                 NO_CMAKE_FIND_ROOT_PATH)
+-            find_program(_NATIVE_CXX NAMES c++ g++ clang++ cl
++            find_program(_NATIVE_CXX NAMES clang++ c++ g++ cl
+                 PATHS /usr/bin /usr/local/bin
+                 NO_CMAKE_FIND_ROOT_PATH)
+ 
+@@ -127,9 +136,17 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
                  -G Ninja
                  ${_HOST_COMPILER_ARGS}
                  -DCMAKE_BUILD_TYPE=Release
@@ -33,7 +51,7 @@ index 754e117..70ac3c5 100644
                  -DTINT_BUILD_TESTS=OFF
                  -DTINT_BUILD_FUZZERS=OFF
                  -DTINT_BUILD_BENCHMARKS=OFF
-@@ -139,6 +153,10 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
+@@ -139,6 +156,10 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
                  -DTINT_BUILD_GLSL_WRITER=OFF
                  -DTINT_BUILD_HLSL_WRITER=OFF
                  -DTINT_BUILD_MSL_WRITER=OFF
@@ -44,7 +62,7 @@ index 754e117..70ac3c5 100644
              RESULT_VARIABLE _configure_result
              OUTPUT_QUIET
          )
-@@ -164,12 +182,16 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
+@@ -164,12 +185,16 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
      endif()
  endif()
  
