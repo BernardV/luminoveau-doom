@@ -9,6 +9,10 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      only:
+        description: 'Build only this platform (blank = all). e.g. windows'
+        default: ''
 
 permissions:
   contents: write        # create/update the Release on a tag
@@ -16,6 +20,7 @@ permissions:
 jobs:
   # ── macOS (.app bundle) ─────────────────────────────────────────────────────
   macos:
+    if: github.event.inputs.only != 'windows'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
@@ -57,9 +62,21 @@ jobs:
           restore-keys: win-deps-
       - name: Build
         run: |
+          set -o pipefail
           cmake -S . -B build-win -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_TOOLCHAIN_FILE=toolchain-mingw.cmake \
-            -DLUMINOVEAU_GIT_URL=https://github.com/bXi/luminoveau.git
+            -DLUMINOVEAU_GIT_URL=https://github.com/bXi/luminoveau.git || {
+              echo "::group::SDL3_image sub-build logs"
+              find build-win -path '*sdl3_image*' -name '*.log' 2>/dev/null | while read L; do
+                echo "===== $L ====="; tail -80 "$L"; echo
+              done
+              echo "----- any CMake logs mentioning an error -----"
+              find build-win -name 'CMake*.log' 2>/dev/null | while read L; do
+                grep -qiE 'error|failed' "$L" && { echo "===== $L ====="; tail -40 "$L"; echo; }
+              done
+              echo "::endgroup::"
+              exit 1
+            }
           cmake --build build-win -j 2
       - name: Bundle runtime DLLs + package
         run: |
@@ -78,6 +95,7 @@ jobs:
 
   # ── Linux (native) ──────────────────────────────────────────────────────────
   linux:
+    if: github.event.inputs.only != 'windows'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -111,6 +129,7 @@ jobs:
 
   # ── Web (WASM/WebGPU, zipped for download) ──────────────────────────────────
   web:
+    if: github.event.inputs.only != 'windows'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
