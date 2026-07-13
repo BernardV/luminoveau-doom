@@ -35,6 +35,11 @@ jobs:
           cmake -S . -B build-mac -DCMAKE_BUILD_TYPE=Release \
             -DLUMINOVEAU_GIT_URL=https://github.com/bXi/luminoveau.git
           cmake --build build-mac -j
+      - name: Ad-hoc code-sign
+        # Not notarized (no Apple Developer account), but a valid ad-hoc signature
+        # avoids the "…is damaged" Gatekeeper error; users still remove the quarantine
+        # flag once (right-click → Open, or xattr -dr com.apple.quarantine).
+        run: codesign --force --deep --sign - build-mac/bin/doom.app
       - name: Package
         run: cd build-mac/bin && zip -qry doom-macos.zip doom.app
       - uses: actions/upload-artifact@v7

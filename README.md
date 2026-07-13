@@ -25,6 +25,11 @@ Runs on **macOS**, **Windows**, **Linux**, and the **Web (WebAssembly + WebGPU)*
   phone use "Add to Home Screen" for a fullscreen, installable PWA.
 - **Download a build:** the latest [**Releases**](https://github.com/BernardV/luminoveau-doom/releases)
   have `doom-macos.zip`, `doom-windows.zip`, `doom-linux.zip` and `doom-web.zip`.
+  - **macOS** (Apple Silicon): the app is ad-hoc signed but not Apple-notarized, so the
+    first time, **right-click → Open** — or run `xattr -dr com.apple.quarantine doom.app`
+    — to get past Gatekeeper.
+  - **Windows**: unzip and run `doom.exe`, keeping the `.dll` files next to it.
+  - **Linux**: needs a Vulkan-capable GPU/driver.
 
 Every build ships shareware episode 1 and is playable out of the box; drop your own
 IWAD in for the full game (see [Game data](#game-data)).
