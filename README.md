@@ -22,7 +22,8 @@ Runs on **macOS**, **Windows**, **Linux**, and the **Web (WebAssembly + WebGPU)*
 
 - **Play in your browser:** **[bernardv.github.io/luminoveau-doom](https://bernardv.github.io/luminoveau-doom/)**
   — needs a WebGPU browser (Chrome / Edge, or Safari 17.4+). Tap/click to start; on a
-  phone use "Add to Home Screen" for a fullscreen, installable PWA.
+  phone use "Add to Home Screen" for a fullscreen, installable PWA. **Savegames persist**
+  in the browser (stored in IndexedDB), so you can save, reload, and continue.
 - **Download a build:** the latest [**Releases**](https://github.com/BernardV/luminoveau-doom/releases)
   have `doom-macos.zip`, `doom-windows.zip`, `doom-linux.zip` and `doom-web.zip`.
   - **macOS** (Apple Silicon): the app is ad-hoc signed but not Apple-notarized, so the
