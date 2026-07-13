@@ -91,6 +91,20 @@
             cursor:pointer; color:#fff;
         }
         #cheat .send { background:#e33; } #cheat .cancel { background:#444; }
+        /* WAD chooser on the start screen. */
+        #wadbar {
+            font-family:'Barlow Condensed', sans-serif; color:#bbb; margin-top:1.3em;
+            font-size:clamp(.85em, 3.5vw, 1.1em); text-align:center; max-width:90vw;
+        }
+        #wadbar .wadbtn {
+            display:inline-block; cursor:pointer; color:#fff; border:1px solid #666;
+            border-radius:6px; padding:.35em .9em; margin:.2em; background:rgba(255,255,255,.06);
+        }
+        #wadbar .wadbtn:hover { border-color:#e33; }
+        #wadbar .cur { color:#6f6; }
+        #wadbar .muted { color:#888; font-size:.8em; display:block; margin-top:.5em; }
+        #wadbar a { color:#e33; cursor:pointer; text-decoration:underline; }
+        #wadfile { display:none; }
     </style>
 </head>
 <body>
@@ -98,6 +112,14 @@
         <h1 class="brand">DOOM</h1>
         <div class="cta" id="startgame-text">Loading&hellip;</div>
         <div id="progressbar"><div></div></div>
+        <!-- WAD chooser: shareware (bundled) or the player's own IWAD (kept in the browser). -->
+        <div id="wadbar" style="display:none">
+            <div id="wad-current">Using the <span class="cur">shareware</span> episode.</div>
+            <label class="wadbtn" for="wadfile">Use your own WAD&hellip;</label>
+            <a id="wad-reset" style="display:none">use shareware</a>
+            <input type="file" id="wadfile" accept=".wad,application/octet-stream">
+            <span class="muted">Your WAD stays in this browser (IndexedDB) — never uploaded.</span>
+        </div>
         <div id="version">v __DOOM_VERSION__</div>
     </div>
 
@@ -192,6 +214,16 @@
                 if (window.__lumiResumeAudio) window.__lumiResumeAudio();
                 if (++tries > 40) clearInterval(t);   // ~10s
             }, 250);
+            // If the player chose their own IWAD, drop it into /assets under its
+            // canonical name before the engine starts. Doom's IdentifyVersion checks
+            // doom2/doomu/doom before the bundled doom1.wad, so it takes precedence.
+            var fs = (window.Module && Module.FS) || (typeof FS !== 'undefined' ? FS : null);
+            if (window._customWad && fs) {
+                try { fs.writeFile('/assets/' + window._customWad.name,
+                                   new Uint8Array(window._customWad.bytes)); } catch (e) {
+                    console.error('Could not stage custom WAD:', e);
+                }
+            }
             if (_removeRunDep) _removeRunDep("bixxyengine_init_delay");
             else _autoStartPending = true;
             sg.style.display = 'none';
@@ -242,6 +274,102 @@
             });
         })();
 
+        // ── Custom IWAD chooser (bring your own DOOM/DOOM II/… WAD) ────────────
+        // Stores the chosen WAD in IndexedDB (stays in this browser, never uploaded);
+        // startGame() writes it into /assets before the engine reads its IWAD.
+        window._customWad = null;   // { name, title, bytes } when a custom WAD is active
+        (function () {
+            var bar   = document.getElementById('wadbar');
+            var curEl = document.getElementById('wad-current');
+            var reset = document.getElementById('wad-reset');
+            var file  = document.getElementById('wadfile');
+
+            // Tiny IndexedDB store for one record: the chosen WAD.
+            function idb(fn) {
+                var r = indexedDB.open('doom-wad', 1);
+                r.onupgradeneeded = function () { r.result.createObjectStore('wad'); };
+                r.onsuccess = function () { fn(r.result); };
+                r.onerror   = function () { fn(null); };
+            }
+            function wadGet(cb) {
+                idb(function (db) {
+                    if (!db) return cb(null);
+                    try { var g = db.transaction('wad').objectStore('wad').get('current');
+                          g.onsuccess = function () { cb(g.result || null); };
+                          g.onerror = function () { cb(null); }; }
+                    catch (e) { cb(null); }
+                });
+            }
+            function wadPut(rec) {
+                idb(function (db) { if (db) try { db.transaction('wad', 'readwrite').objectStore('wad').put(rec, 'current'); } catch (e) {} });
+            }
+            function wadDel() {
+                idb(function (db) { if (db) try { db.transaction('wad', 'readwrite').objectStore('wad').delete('current'); } catch (e) {} });
+            }
+
+            // Identify an IWAD from its lump directory → canonical filename + title.
+            // (IWAD header: 'IWAD', int32 numlumps, int32 dirofs; each 16-byte entry
+            // ends with an 8-char name.) Filename drives Doom's gamemode detection.
+            function identify(buf) {
+                var dv = new DataView(buf), u8 = new Uint8Array(buf);
+                var magic = String.fromCharCode(u8[0], u8[1], u8[2], u8[3]);
+                if (magic !== 'IWAD' && magic !== 'PWAD') return null;
+                var n = dv.getInt32(4, true), ofs = dv.getInt32(8, true);
+                if (n <= 0 || ofs <= 0 || ofs + n * 16 > buf.byteLength) return null;
+                var names = {}, hasMap01 = false, maxEp = 0;
+                for (var i = 0; i < n; i++) {
+                    var p = ofs + i * 16, s = '';
+                    for (var j = 0; j < 8; j++) { var c = u8[p + 8 + j]; if (!c) break; s += String.fromCharCode(c); }
+                    names[s] = 1;
+                    if (s === 'MAP01') hasMap01 = true;
+                    var m = /^E(\d)M\d$/.exec(s); if (m) maxEp = Math.max(maxEp, +m[1]);
+                }
+                if (hasMap01)  return { name: 'doom2.wad', title: 'DOOM II / commercial' };
+                if (maxEp >= 4) return { name: 'doomu.wad', title: 'The Ultimate DOOM' };
+                if (maxEp >= 2) return { name: 'doom.wad',  title: 'Registered DOOM' };
+                if (maxEp === 1)return { name: 'doom1.wad', title: 'DOOM (episode 1)' };
+                return null;
+            }
+
+            function render() {
+                var w = window._customWad;
+                if (w) {
+                    curEl.innerHTML = 'Using <span class="cur">' + w.title + '</span> (your WAD).';
+                    reset.style.display = '';
+                } else {
+                    curEl.innerHTML = 'Using the <span class="cur">shareware</span> episode.';
+                    reset.style.display = 'none';
+                }
+            }
+
+            file.addEventListener('change', function () {
+                var f = file.files && file.files[0];
+                if (!f) return;
+                curEl.textContent = 'Reading ' + f.name + '…';
+                var fr = new FileReader();
+                fr.onload = function () {
+                    var buf = fr.result, info = identify(buf);
+                    if (!info) { curEl.innerHTML = '<span style="color:#e33">Not a DOOM IWAD.</span>'; return; }
+                    window._customWad = { name: info.name, title: info.title, bytes: buf };
+                    wadPut(window._customWad);
+                    render();
+                };
+                fr.readAsArrayBuffer(f);
+            });
+            reset.addEventListener('click', function () {
+                window._customWad = null; wadDel(); file.value = ''; render();
+            });
+            // Keep clicks inside the chooser from bubbling to #startgame (tap-to-play).
+            bar.addEventListener('click', function (e) { e.stopPropagation(); });
+
+            // Restore a previously chosen WAD, then reveal the chooser.
+            wadGet(function (rec) {
+                if (rec && rec.bytes) window._customWad = rec;
+                render();
+            });
+            window.__doomShowWadBar = function () { bar.style.display = ''; };
+        })();
+
         // ── Service worker (installable / offline) ────────────────────────────
         if ('serviceWorker' in navigator && window.isSecureContext) {
             window.addEventListener('load', function () {
@@ -276,6 +404,8 @@
             _lumiSetProgress(1);
             // PWA: always wait for a tap — it unlocks audio and enters fullscreen.
             if (window.isSecureContext && navigator.gpu && txt) txt.textContent = 'Tap to play';
+            // Reveal the "use your own WAD" chooser once we're ready to start.
+            if (window.isSecureContext && navigator.gpu && window.__doomShowWadBar) window.__doomShowWadBar();
         }
 
         // ── .wasm download progress bar (HEAD for a reliable total) ───────────
