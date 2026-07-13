@@ -44,12 +44,8 @@ jobs:
         with: { files: build-mac/bin/doom-macos.zip }
 
   # ── Windows (mingw-w64 cross-compile) ───────────────────────────────────────
-  # Not blocking the release yet: SDL3_image's mingw cross-build fails in CI (its
-  # sub-build error isn't surfaced). Kept here so we can fix it without losing the
-  # rest of the release; allowed to fail meanwhile.
   windows:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v5
       - name: Install mingw-w64

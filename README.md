@@ -10,8 +10,7 @@ widescreen full-window rendering, smooth or crisp texturing, bloom / tonemap /
 vignette, dynamic coloured lights, mouselook, gamepad support, and a full
 **touch-control layer** that turns the web build into an installable mobile PWA.
 
-Runs on **macOS**, **Linux**, and the **Web (WebAssembly + WebGPU)**; a **Windows**
-cross-compile builds but isn't in the release yet.
+Runs on **macOS**, **Windows**, **Linux**, and the **Web (WebAssembly + WebGPU)**.
 
 > This is a source port for study and fun. It bundles only the **freely
 > distributable shareware IWAD** (`doom1.wad`, episode 1); for the full game you
@@ -25,8 +24,7 @@ cross-compile builds but isn't in the release yet.
   — needs a WebGPU browser (Chrome / Edge, or Safari 17.4+). Tap/click to start; on a
   phone use "Add to Home Screen" for a fullscreen, installable PWA.
 - **Download a build:** the latest [**Releases**](https://github.com/BernardV/luminoveau-doom/releases)
-  have `doom-macos.zip`, `doom-linux.zip` and `doom-web.zip`. (A Windows build is in
-  progress.)
+  have `doom-macos.zip`, `doom-windows.zip`, `doom-linux.zip` and `doom-web.zip`.
 
 Every build ships shareware episode 1 and is playable out of the box; drop your own
 IWAD in for the full game (see [Game data](#game-data)).
