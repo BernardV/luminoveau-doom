@@ -149,6 +149,7 @@ static int SdlKeyToDoom(SDL_Keycode kc)
 
 static int   g_mouseButtons = 0;
 static bool  g_touchNoMouse = false;  // real touch device: ignore mouse (touch emits synthetic clicks)
+static volatile bool g_relockPending = false;  // web: pointer lock just re-acquired on a click → settle the delta
 static volatile bool g_kbSuppress = false;  // cheat prompt owns the keyboard: don't feed Doom live
 static bool  g_gpuMode = false;   // GPU renderer active (enables mouselook)
 static float g_pitch   = 0.0f;    // look up/down angle, radians
@@ -632,6 +633,7 @@ Lumi::Result AppIterate(void* /*appstate*/)
             settle = 0;                 // discard the spurious delta after (re)capture
         }
         if (const char* fp = getenv("DOOM_PITCH")) { g_pitch = (float)atof(fp); DG_SetPitch(g_pitch); }  // debug: fixed look pitch
+        if (g_relockPending) { settle = 0; g_relockPending = false; }  // re-lock via click
         if (!uiActive) {
             vf2d md = Input::GetMouseDelta();
             if (settle < 6) { settle++; md = {0.0f, 0.0f}; }
@@ -710,7 +712,20 @@ Lumi::Result AppEvent(void* /*appstate*/, SDL_Event* event)
                               (int)event->motion.yrel);
             break;
         // Mouse buttons are polled in PollMouseButtons() (SDL_AppEvent drops
-        // them on macOS, same as keyboard), so nothing to do here.
+        // them on macOS, same as keyboard), so fire etc. is handled there.
+#ifdef __EMSCRIPTEN__
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            // Web: the browser only grants pointer lock inside a user gesture and
+            // drops it on Esc. The per-frame relative-mouse toggle can't re-acquire
+            // it (it fires only on state change and runs outside a gesture), so a
+            // click during gameplay wouldn't recapture the mouse. Re-request it here,
+            // inside the click event, so mouselook resumes. (Menus keep the cursor.)
+            if (g_gpuMode && !g_touchNoMouse && !DG_UIActive()) {
+                Window::SetRelativeMouseMode(true);
+                g_relockPending = true;   // discard the spurious delta on re-lock
+            }
+            break;
+#endif
         default: break;
     }
     return Lumi::Result::Continue;
