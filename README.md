@@ -23,13 +23,15 @@ Runs on **macOS**, **Windows**, **Linux**, and the **Web (WebAssembly + WebGPU)*
 - **Play in your browser:** **[bernardv.github.io/luminoveau-doom](https://bernardv.github.io/luminoveau-doom/)**
   — needs a WebGPU browser (Chrome / Edge, or Safari 17.4+). Tap/click to start; on a
   phone use "Add to Home Screen" for a fullscreen, installable PWA. **Savegames persist**
-  in the browser (stored in IndexedDB), so you can save, reload, and continue.
+  in the browser (stored in IndexedDB), so you can save, reload, and continue. You can
+  also **bring your own IWAD** — the start screen lets you load your own DOOM / Ultimate
+  DOOM / DOOM II WAD (kept in your browser, never uploaded) instead of the shareware.
 - **Download a build:** the latest [**Releases**](https://github.com/BernardV/luminoveau-doom/releases)
   have `doom-macos.zip`, `doom-windows.zip`, `doom-linux.zip` and `doom-web.zip`.
   - **macOS** (Apple Silicon): the app is ad-hoc signed but not Apple-notarized, so the
     first time, **right-click → Open** — or run `xattr -dr com.apple.quarantine doom.app`
     — to get past Gatekeeper.
-  - **Windows**: unzip and run `doom.exe`, keeping the `.dll` files next to it.
+  - **Windows**: unzip and run `doom.exe` — statically linked, no DLLs needed.
   - **Linux**: needs a Vulkan-capable GPU/driver.
 
 Every build ships shareware episode 1 and is playable out of the box; drop your own

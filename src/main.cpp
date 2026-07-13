@@ -528,9 +528,7 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
 #endif
     Window::InitWindow("DOOM — Luminoveau", 960, 600, 1, SDL_WINDOW_RESIZABLE);
     Renderer::ClearBackground({0, 0, 0, 255});
-    LOG_INFO("DOOM: window+GPU ready, initializing audio…");
     Audio::Init();   // not done by InitWindow; needed before the PCM mixer
-    LOG_INFO("DOOM: audio initialized");
 
     // Doom locates its IWAD with raw fopen/access, not PhysFS, and the working
     // directory can't be relied on (a macOS .app launched via `open` starts in
