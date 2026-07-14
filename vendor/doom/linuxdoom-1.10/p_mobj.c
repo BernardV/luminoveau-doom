@@ -825,6 +825,10 @@ P_SpawnPuff
 
     th = P_SpawnMobj (x,y,z, MT_PUFF);
     th->momz = FRACUNIT;
+    // A ceiling puff rises into the ceiling and P_ZMovement clamps it to
+    // ceilingz - height, dropping it a full mobj height below the impact. Zero the
+    // height so it clamps to ceilingz (the impact) and stays on the crosshair.
+    th->height = 0;
     th->tics -= P_Random()&3;
 
     if (th->tics < 1)
