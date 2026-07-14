@@ -20,8 +20,10 @@ set(DOOM_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/doom/linuxdoom-1.10")
 include(FetchContent)
 set(LUMINOVEAU_GIT_URL "git@github.com:bXi/luminoveau.git"
     CACHE STRING "Luminoveau engine git remote (override with an https:// URL if you lack SSH keys)")
-set(LUMINOVEAU_GIT_TAG "10f222c51f365d513e325ad00ba53c6998a5d840"
-    CACHE STRING "Luminoveau engine pinned commit")
+# Pinned commit — a plain (non-cache) variable on purpose: a CACHE var would stick at
+# the first-configured value, so bumping it here wouldn't take effect in an existing
+# build dir. Plain set means the file is always authoritative.
+set(LUMINOVEAU_GIT_TAG "10f222c51f365d513e325ad00ba53c6998a5d840")
 # Upstream now carries our touch-controls and no-gamepad changes, so only the
 # web shader-transpile fixes (Dawn/Tint: clang host build, no GLFW, no C++-module
 # scan) remain as a local patch.
