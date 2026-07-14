@@ -445,6 +445,14 @@ static void build_sprites(void) {
         // leftoffset shifts the billboard horizontally; approximate by centering
         // on the sprite's origin: origin is `soff` from the left edge.
         s->top = FX(mo->z) + stop;                 // top of sprite above feet
+        // Puffs and blood mark a point impact, not something standing on the floor.
+        // Feet-anchoring draws them above the hit point (and clipped into ceilings),
+        // so they look offset from the crosshair. Centre them on the mobj z instead.
+        if (mo->type == MT_PUFF || mo->type == MT_BLOOD) {
+            float half = stop * 0.5f;
+            s->y   = FX(mo->z) - half;
+            s->top = FX(mo->z) + half;
+        }
         (void)soff;
         s->lump = lump; s->flip = flip;
         float shade = mo->subsector->sector->lightlevel / 255.0f;
