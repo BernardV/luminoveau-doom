@@ -45,11 +45,35 @@ static int                 g_chanVol[16];
 #define MUS_TICKRATE 140                    // MUS delays are 1/140 s
 
 // ── Init / shutdown (game thread, before playback) ───────────────────────────
+// Rock remap: force every melodic channel to Distortion Guitar (GM program 30) and
+// the drum channel (MUS ch 15) to the Power kit (GM drum kit 16, fall back to the
+// Standard kit if the soundfont lacks it). On by default; tied to the GPU renderer —
+// the classic software mode (DOOM_GPU=0) keeps the original General-MIDI voices.
+static int g_musicRock = 1;
+
+static void dg_set_preset(int chan, int val)
+{
+    if (g_musicRock) {
+        if (chan == 15) {
+            if (!tsf_channel_set_presetnumber(g_tsf, chan, 16, 1))
+                tsf_channel_set_presetnumber(g_tsf, chan, 0, 1);
+        } else {
+            if (!tsf_channel_set_presetnumber(g_tsf, chan, 30, 0))
+                tsf_channel_set_presetnumber(g_tsf, chan, val, 0);
+        }
+    } else {
+        tsf_channel_set_presetnumber(g_tsf, chan, val, chan == 15);
+    }
+}
+
 void DG_MusicInit(void)
 {
     const char* dir = getenv("DOOMWADDIR");
+    const char* gpuEnv = getenv("DOOM_GPU");
     char path[1024];
     int i;
+    // Match main.cpp's GPU test exactly: on unless DOOM_GPU is exactly "0".
+    g_musicRock = !(gpuEnv && gpuEnv[0] == '0' && gpuEnv[1] == '\0');
     snprintf(path, sizeof(path), "%s/soundfont.sf2", dir ? dir : "assets");
     g_tsf = tsf_load_filename(path);
     if (!g_tsf) {
@@ -59,9 +83,10 @@ void DG_MusicInit(void)
     tsf_set_output(g_tsf, TSF_STEREO_INTERLEAVED, DG_AUDIO_RATE, 0.0f);
     for (i = 0; i < 16; i++) {
         g_chanVol[i] = 127;
-        tsf_channel_set_presetnumber(g_tsf, i, 0, i == 15);  // channel 15 = drums
+        dg_set_preset(i, 0);            // rock remap (or original preset 0 when off)
     }
-    fprintf(stderr, "Music: soundfont loaded (%s)\n", path);
+    fprintf(stderr, "Music: soundfont loaded (%s)%s\n", path,
+            g_musicRock ? " [rock instruments]" : "");
 }
 
 void I_InitMusic(void) {}          // real init is DG_MusicInit (called from I_Init)
@@ -153,7 +178,7 @@ static void advanceEvents(void)
                 int ctrl = (*g_pos++) & 0x7f;
                 int val  = (*g_pos++) & 0x7f;
                 switch (ctrl) {
-                    case 0: tsf_channel_set_presetnumber(g_tsf, chan, val, chan == 15); break;
+                    case 0: dg_set_preset(chan, val); break;          // program change (rock-remapped)
                     case 1: break;                                    // bank
                     case 2: tsf_channel_midi_control(g_tsf, chan, 1,  val); break; // modulation
                     case 3: tsf_channel_midi_control(g_tsf, chan, 7,  val); break; // volume
@@ -198,7 +223,7 @@ void DG_MusicMix(float* out, unsigned int frames, unsigned int channels)
     static float musMaster = -1.0f;
     if (musMaster < 0.0f) {
         const char* e = getenv("DOOM_MUSIC_GAIN");
-        musMaster = e ? (float)atof(e) : 0.15f;
+        musMaster = e ? (float)atof(e) : 0.30f;
         if (musMaster < 0.0f) musMaster = 0.0f;
     }
 

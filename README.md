@@ -192,7 +192,7 @@ Everything has sensible defaults; these override at launch (e.g.
 `DOOM_COLORMAP=1` (banded Authentic+ lighting) · `DOOM_LIGHT_INTENSITY` ·
 `DOOM_LIGHTTEST=1`.
 
-**Audio:** `DOOM_SFX_GAIN` (default 1.6) · `DOOM_MUSIC_GAIN` (default 0.15).
+**Audio:** `DOOM_SFX_GAIN` (default 1.6) · `DOOM_MUSIC_GAIN` (default 0.30).
 
 **Touch:** `DOOM_TOUCH=1` (force controls on desktop for testing) ·
 `DOOM_TOUCH_SCALE` (control size) · `DOOM_TOUCH_DISCTURN` (disc turn rate) ·
