@@ -41,8 +41,8 @@ IWAD in for the full game (see [Game data](#game-data)).
 
 - **Web** deploys to GitHub Pages automatically on every push to `main`.
 - **Releases** (macOS / Linux / Web zips) are built only when a version tag `vX.Y`
-  is pushed, and attached to the GitHub Release. The engine is fetched + patched at
-  build time, so a fresh checkout builds without vendored engine sources.
+  is pushed, and attached to the GitHub Release. The engine is fetched at build time,
+  so a fresh checkout builds without vendored engine sources.
 
 ---
 
@@ -70,8 +70,8 @@ owns the window, GPU present, input, timing and audio.
   General-MIDI soundfont via TinySoundFont).
 
 The classic software renderer is still in the tree — `DOOM_GPU=0` runs the original,
-pixel-for-pixel. The engine is fetched at build time (pinned commit + local patches);
-the Doom source is vendored. See [Building](#building) and [`patches/`](patches).
+pixel-for-pixel. The engine is fetched at build time (pinned upstream commit, used
+unmodified); the Doom source is vendored. See [Building](#building).
 
 ---
 
@@ -212,14 +212,14 @@ frame 180).
 src/                 host layer: window/input/audio/timing + the GPU render bridge
 assets/shaders/      GLSL shaders (transpiled to SPIR-V / WGSL per backend)
 web/                 PWA shell, manifest, service worker, icons, version stamper
-patches/             local Luminoveau engine patches (applied at build time)
 vendor/doom/         id's linuxdoom-1.10 source (vendored, with 64-bit/port fixes)
 CMakeLists.txt       Doom is vendored; Luminoveau is fetched via FetchContent
 ```
 
 The Luminoveau engine is **not** vendored — CMake `FetchContent` pulls it at a pinned
-commit and applies the patches in `patches/` (which are also offered upstream to the
-engine author). See [`patches/README.md`](patches/README.md).
+upstream commit and uses it **unmodified**. (Earlier local engine fixes — touch
+controls, the no-gamepad hatch, the Linux/CI shader transpile — have all been merged
+upstream.)
 
 ---
 

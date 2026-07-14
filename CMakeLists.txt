@@ -13,27 +13,19 @@ endif()
 set(DOOM_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/doom/linuxdoom-1.10")
 
 # ── Engine (Luminoveau) ───────────────────────────────────────────────────────
-# Fetched from upstream at a pinned commit instead of vendored, with our local
-# engine changes applied on top as patches (see patches/). Keeps the engine out of
-# this repo while staying reproducible. To update: bump LUMINOVEAU_GIT_TAG, then
-# regenerate the patches against the new commit — see patches/README.md.
+# Fetched from upstream at a pinned commit instead of vendored. No local patches:
+# all our engine changes (touch controls, no-gamepad hatch, Linux/CI shader
+# transpile) have been merged upstream. To update, bump LUMINOVEAU_GIT_TAG.
 include(FetchContent)
 set(LUMINOVEAU_GIT_URL "git@github.com:bXi/luminoveau.git"
     CACHE STRING "Luminoveau engine git remote (override with an https:// URL if you lack SSH keys)")
 # Pinned commit — a plain (non-cache) variable on purpose: a CACHE var would stick at
 # the first-configured value, so bumping it here wouldn't take effect in an existing
 # build dir. Plain set means the file is always authoritative.
-set(LUMINOVEAU_GIT_TAG "10f222c51f365d513e325ad00ba53c6998a5d840")
-# Upstream now carries our touch-controls and no-gamepad changes, so only the
-# web shader-transpile fixes (Dawn/Tint: clang host build, no GLFW, no C++-module
-# scan) remain as a local patch.
-set(LUMINOVEAU_PATCHES
-    "${CMAKE_CURRENT_SOURCE_DIR}/patches/luminoveau-shader-transpile.patch")
+set(LUMINOVEAU_GIT_TAG "3393ac747f147fea0c015b9ba258d84488cf8003")
 FetchContent_Declare(luminoveau
     GIT_REPOSITORY "${LUMINOVEAU_GIT_URL}"
-    GIT_TAG        "${LUMINOVEAU_GIT_TAG}"
-    # Apply our local engine changes; idempotent so a re-configure doesn't re-error.
-    PATCH_COMMAND  bash "${CMAKE_CURRENT_SOURCE_DIR}/patches/apply.sh" ${LUMINOVEAU_PATCHES})
+    GIT_TAG        "${LUMINOVEAU_GIT_TAG}")
 FetchContent_MakeAvailable(luminoveau)
 
 # ── Doom core (original C sources, minus the platform files we replace) ───────
