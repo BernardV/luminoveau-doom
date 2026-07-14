@@ -13,12 +13,12 @@ and applies these patches on top at configure time.
 
 | File | Touches | What |
 |------|---------|------|
-| `luminoveau-virtualcontrols-touch.patch` | `src/platform/input/virtualcontrols.{h,cpp}` | Touch controls: physical-coords, look region + tap, labels, viewport-relative sizing, mouse-emulation toggle |
-| `luminoveau-input-no-gamepad.patch` | `src/platform/input/input.cpp` | `LUMI_NO_GAMEPAD=1` escape hatch (gamepad init can hang on macOS) |
-| `luminoveau-shader-transpile.patch` | `cmake/ShaderTranspile.cmake` | Web GLSL→WGSL transpile fixes (Tint/Dawn/glslang) |
+| `luminoveau-shader-transpile.patch` | `cmake/ShaderTranspile.cmake` | Web GLSL→WGSL transpile fixes: build Tint with clang (only clang scans Dawn's C++ modules), no GLFW, no C++-module scan |
 
-All are additive / opt-in and are being sent upstream. `apply.sh` applies them
-idempotently (skips any already applied) so re-configuring never errors.
+The touch-controls and `LUMI_NO_GAMEPAD` changes were **merged upstream** (as of pin
+`10f222c`), so those patches were dropped. `apply.sh` resets the engine tree to the
+pinned commit and applies the remaining patch(es) fresh, so re-configuring never
+errors on a stale/partially-patched checkout.
 
 ## Updating the engine
 

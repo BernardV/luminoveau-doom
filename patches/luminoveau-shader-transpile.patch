@@ -1,30 +1,16 @@
 diff --git a/cmake/ShaderTranspile.cmake b/cmake/ShaderTranspile.cmake
-index 754e117..ccbce68 100644
+index 19f9628..517be7d 100644
 --- a/cmake/ShaderTranspile.cmake
 +++ b/cmake/ShaderTranspile.cmake
-@@ -70,6 +70,12 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
-     if(EXISTS "${LUMI_DAWN_SRC}" AND NOT EXISTS "${LUMI_DAWN_SRC}/third_party/abseil-cpp/CMakeLists.txt")
-         find_package(Python3 COMPONENTS Interpreter QUIET)
-         if(Python3_FOUND AND EXISTS "${LUMI_DAWN_SRC}/tools/fetch_dawn_dependencies.py")
-+            # Recent Dawn DEPS use gclient's Str() helper, which the bundled fetch
-+            # script doesn't inject into the exec globals -> NameError. Patch it in
-+            # (idempotent) so the dependency fetch works on current checkouts.
-+            execute_process(COMMAND sed -i.bak
-+                "s/exec(DEPS, globals(), ldict)/globals().setdefault('Str', str); exec(DEPS, globals(), ldict)/"
-+                "${LUMI_DAWN_SRC}/tools/fetch_dawn_dependencies.py")
-             lumi_msg("Fetching Dawn dependencies...")
-             execute_process(
-                 COMMAND ${Python3_EXECUTABLE}
-@@ -94,11 +100,14 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
+@@ -100,11 +100,13 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
          # When cross-compiling, CMAKE_C/CXX_COMPILER point to emcc.
          # We need the native compiler instead.
          if(EMSCRIPTEN)
 -            # Try to find the native compiler
 -            find_program(_NATIVE_CC NAMES cc gcc clang cl
 +            # Try to find the native compiler. Prefer clang: recent Dawn has a C++20
-+            # module target and only clang (+ clang-scan-deps) can discover the module
-+            # import graph — GCC can't, so the host configure fails. clang is also what
-+            # macOS uses, so this keeps the host build on the proven compiler.
++            # module target that only clang (+ clang-scan-deps) can scan — GCC can't,
++            # so the host configure fails. clang is also what macOS uses.
 +            find_program(_NATIVE_CC NAMES clang cc gcc cl
                  PATHS /usr/bin /usr/local/bin
                  NO_CMAKE_FIND_ROOT_PATH)
@@ -33,51 +19,17 @@ index 754e117..ccbce68 100644
                  PATHS /usr/bin /usr/local/bin
                  NO_CMAKE_FIND_ROOT_PATH)
  
-@@ -127,9 +136,17 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
+@@ -133,7 +135,13 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
                  -G Ninja
                  ${_HOST_COMPILER_ARGS}
                  -DCMAKE_BUILD_TYPE=Release
-+                # Dawn has a C++20-modules target; GCC + Ninja on CI can't scan the
-+                # module import graph. We only need the tint CLI, so disable scanning.
++                # GCC+Ninja can't scan Dawn's C++20 module target; we only need tint.
 +                -DCMAKE_CXX_SCAN_FOR_MODULES=OFF
                  -DDAWN_BUILD_SAMPLES=OFF
-                 -DDAWN_BUILD_TESTS=OFF
-                 -DDAWN_BUILD_BENCHMARKS=OFF
-+                # Don't pull in GLFW — the tint CLI doesn't need it, and configuring
-+                # it on Linux/CI requires X11/Wayland dev libs (and fails under emcmake,
-+                # which points pkg-config at the Emscripten sysroot).
++                # No GLFW: the tint CLI doesn't need it, and configuring it on Linux/CI
++                # needs X11/Wayland dev libs (and fails under emcmake's pkg-config).
 +                -DDAWN_USE_GLFW=OFF
 +                -DDAWN_ENABLE_DESKTOP_GL=OFF
+                 -DDAWN_BUILD_TESTS=OFF
+                 -DDAWN_BUILD_BENCHMARKS=OFF
                  -DTINT_BUILD_TESTS=OFF
-                 -DTINT_BUILD_FUZZERS=OFF
-                 -DTINT_BUILD_BENCHMARKS=OFF
-@@ -139,6 +156,10 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
-                 -DTINT_BUILD_GLSL_WRITER=OFF
-                 -DTINT_BUILD_HLSL_WRITER=OFF
-                 -DTINT_BUILD_MSL_WRITER=OFF
-+                # Recent Dawn enables the protobuf-based IR binary format by default,
-+                # which pulls in a protobuf dependency we don't have. We only need the
-+                # SPIR-V→WGSL path, so turn it off.
-+                -DTINT_BUILD_IR_BINARY=OFF
-             RESULT_VARIABLE _configure_result
-             OUTPUT_QUIET
-         )
-@@ -164,12 +185,16 @@ if(NOT EXISTS "${LUMI_TINT_EXECUTABLE}")
-     endif()
- endif()
- 
--# Re-derive path and verify (handles first-build where file didn't exist at cache time)
-+# Re-derive path and verify (handles first-build where file didn't exist at cache time).
-+# Cache it (INTERNAL) so lumi_transpile_shaders() sees it even when called from a
-+# different directory scope (e.g. the game's CMakeLists via luminoveau_configure_web_target);
-+# a plain set() would be invisible there, unlike the cached find_program result for glslang.
- set(LUMI_TINT_EXECUTABLE "${LUMI_TINT_HOST_DIR}/${TINT_EXE_NAME}")
- if(EXISTS "${LUMI_TINT_EXECUTABLE}")
-+    set(LUMI_TINT_EXECUTABLE "${LUMI_TINT_EXECUTABLE}" CACHE INTERNAL "Tint CLI for GLSL→WGSL transpilation")
-     lumi_done("Tint shader compiler: ${LUMI_TINT_EXECUTABLE}")
- else()
--    set(LUMI_TINT_EXECUTABLE "")
-+    set(LUMI_TINT_EXECUTABLE "" CACHE INTERNAL "Tint CLI for GLSL→WGSL transpilation")
-     lumi_warn("Tint not available - effect shaders won't be transpiled to WGSL")
-     lumi_warn("Install tint CLI and set LUMI_TINT_EXECUTABLE, or ensure git+python3+ninja are available for auto-build")
- endif()

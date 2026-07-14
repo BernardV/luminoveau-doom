@@ -20,11 +20,12 @@ set(DOOM_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/doom/linuxdoom-1.10")
 include(FetchContent)
 set(LUMINOVEAU_GIT_URL "git@github.com:bXi/luminoveau.git"
     CACHE STRING "Luminoveau engine git remote (override with an https:// URL if you lack SSH keys)")
-set(LUMINOVEAU_GIT_TAG "c306a73050e565077447c97aa581e246ce62e484"
+set(LUMINOVEAU_GIT_TAG "10f222c51f365d513e325ad00ba53c6998a5d840"
     CACHE STRING "Luminoveau engine pinned commit")
+# Upstream now carries our touch-controls and no-gamepad changes, so only the
+# web shader-transpile fixes (Dawn/Tint: clang host build, no GLFW, no C++-module
+# scan) remain as a local patch.
 set(LUMINOVEAU_PATCHES
-    "${CMAKE_CURRENT_SOURCE_DIR}/patches/luminoveau-virtualcontrols-touch.patch"
-    "${CMAKE_CURRENT_SOURCE_DIR}/patches/luminoveau-input-no-gamepad.patch"
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/luminoveau-shader-transpile.patch")
 FetchContent_Declare(luminoveau
     GIT_REPOSITORY "${LUMINOVEAU_GIT_URL}"
