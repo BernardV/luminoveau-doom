@@ -85,6 +85,8 @@
             text-align:center; text-transform:lowercase; padding:.4em; border-radius:6px;
             border:1px solid #555; background:#000; color:#6f6; outline:none;
         }
+        /* Save-name mode: real mixed-case names, not forced lowercase like cheats. */
+        #cheat.savename input { text-transform:none; }
         #cheat .row { display:flex; gap:10px; margin-top:14px; }
         #cheat button {
             flex:1; font-family:inherit; font-size:1.3em; padding:.35em; border:0; border-radius:6px;
@@ -125,11 +127,12 @@
 
     <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex=-1></canvas>
 
-    <!-- Cheat prompt: opened by the secret button combo (USE USE WPN WPN FIRE FIRE USE). -->
+    <!-- Shared text prompt: cheat codes (secret button combo) AND, on touch, naming
+         a save game (no on-screen keyboard otherwise) both reuse this same popup. -->
     <div id="cheat">
         <div class="box">
-            <h2>CHEAT</h2>
-            <p>Type a code (e.g. iddqd, idkfa, idclip)</p>
+            <h2 id="cheat-title">CHEAT</h2>
+            <p id="cheat-hint">Type a code (e.g. iddqd, idkfa, idclip)</p>
             <input id="cheat-input" type="text" autocomplete="off" autocapitalize="off"
                    autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="tap to type&hellip;">
             <div class="row">
@@ -230,32 +233,54 @@
         }
         document.getElementById('startgame').addEventListener('click', startGame);
 
-        // ── Cheat prompt (invoked from the game via the secret button combo) ──
+        // ── Shared text prompt ──────────────────────────────────────────────────
+        // Two callers, one popup: the secret button combo opens it in 'cheat' mode;
+        // on touch, starting to name/rename a save (no on-screen keyboard otherwise)
+        // opens it in 'savename' mode. Mode only changes labels, casing, and which
+        // native function the result is handed to.
         (function () {
             var panel = document.getElementById('cheat');
             var input = document.getElementById('cheat-input');
-            function cheat(v) {   // hand the typed string (or '' to just close) to the game
-                if (window.Module && Module.ccall) {
-                    try { Module.ccall('DG_QueueCheat', null, ['string'], [v || '']); } catch (e) {}
-                }
+            var title = document.getElementById('cheat-title');
+            var hint  = document.getElementById('cheat-hint');
+            var mode  = 'cheat';   // 'cheat' | 'savename'
+            function maxLen() { return mode === 'savename' ? 23 : 24; }
+            function call(fn, args) {
+                if (window.Module && Module.ccall) { try { Module.ccall(fn, null, args ? ['string'] : [], args || []); } catch (e) {} }
             }
             function hide() {
                 panel.classList.remove('show'); input.value = ''; input.blur();
                 var c = document.getElementById('canvas'); if (c) c.focus();
             }
-            function send()   { cheat((input.value || '').trim()); hide(); }
-            function cancel() { cheat(''); hide(); }   // '' releases the keyboard, injects nothing
-            // The prompt is opened from within a button tap (the combo's last press),
-            // so that same finger's touchend/click would otherwise land on the just-
-            // shown backdrop and cancel instantly. Arm the backdrop only after a short
-            // delay so the opening gesture can't close it.
+            function send() {
+                var v = (input.value || '').trim();
+                if (mode === 'savename') call('DG_QueueSaveName', [v]);
+                else                      call('DG_QueueCheat', [v]);   // '' = just closes, injects nothing
+                hide();
+            }
+            function cancel() {
+                if (mode === 'savename') call('DG_CancelSaveName');     // reverts the slot's name (Escape)
+                else                      call('DG_QueueCheat', ['']); // releases the keyboard, injects nothing
+                hide();
+            }
+            // The cheat prompt is opened from within a button tap (the combo's last
+            // press), so that same finger's touchend/click would otherwise land on the
+            // just-shown backdrop and cancel instantly. Arm the backdrop only after a
+            // short delay so the opening gesture can't close it.
             var armedAt = 0;
-            window.__doomCheatPrompt = function () {
-                input.value = '';
+            function open(m, prefill) {
+                mode = m;
+                panel.classList.toggle('savename', mode === 'savename');
+                title.textContent = mode === 'savename' ? 'SAVE GAME' : 'CHEAT';
+                hint.textContent  = mode === 'savename'
+                    ? 'Name this save' : 'Type a code (e.g. iddqd, idkfa, idclip)';
+                input.value = prefill || '';
                 panel.classList.add('show');
                 armedAt = Date.now() + 400;
                 try { input.focus(); } catch (e) {}   // Android/desktop; iOS needs a tap on the field
-            };
+            }
+            window.__doomCheatPrompt    = function ()     { open('cheat'); };
+            window.__doomSaveNamePrompt = function (name) { open('savename', name); };
             document.getElementById('cheat-send').addEventListener('click', send);
             document.getElementById('cheat-cancel').addEventListener('click', cancel);
             panel.addEventListener('click', function (e) {
@@ -267,9 +292,17 @@
                 if (e.key === 'Enter')       { e.preventDefault(); send();   return; }
                 if (e.key === 'Escape')      { e.preventDefault(); cancel(); return; }
                 if (e.key === 'Backspace')   { e.preventDefault(); input.value = input.value.slice(0, -1); return; }
+                if (mode === 'savename') {
+                    // Save names allow any printable char (spaces, punctuation), not just alnum.
+                    if (e.key.length === 1 && e.key.charCodeAt(0) >= 32 && e.key.charCodeAt(0) <= 126) {
+                        e.preventDefault();
+                        if (input.value.length < maxLen()) input.value += e.key;
+                    }
+                    return;
+                }
                 if (e.key && e.key.length === 1 && /[a-z0-9]/i.test(e.key)) {
                     e.preventDefault();
-                    if (input.value.length < 24) input.value += e.key.toLowerCase();
+                    if (input.value.length < maxLen()) input.value += e.key.toLowerCase();
                 }
             });
         })();
