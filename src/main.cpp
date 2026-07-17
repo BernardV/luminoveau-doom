@@ -389,6 +389,64 @@ static void PumpCheatQueue(void)
     g_cheatPending = false;
 }
 
+// ── Save-name entry (mobile) ─────────────────────────────────────────────────
+// Same idea as the cheat prompt above, reusing the same JS popup: touch has no
+// keyboard to type a save name with, so when Doom's own save-name text entry
+// (saveStringEnter, m_menu.c) starts, pop the JS prompt instead and inject the
+// result back as a key burst that Doom's existing M_Responder handles exactly
+// like real typing (clear + type + Enter, or Escape to cancel/revert).
+static char          g_saveNameBuf[DG_SAVE_NAME_MAX + 1];
+static volatile bool g_saveNameSendPending   = false;
+static volatile bool g_saveNameCancelPending = false;
+static volatile bool g_saveNamePromptOpen    = false;  // JS popup owns input until Send/Cancel
+
+extern "C" void DG_QueueSaveName(const char* s)
+{
+    size_t j = 0;
+    if (s) for (; *s && j < DG_SAVE_NAME_MAX; ++s)
+        if (*s >= 32 && *s <= 126) g_saveNameBuf[j++] = *s;
+    g_saveNameBuf[j] = 0;
+    g_saveNameSendPending = true;
+    g_saveNamePromptOpen = false;
+}
+
+extern "C" void DG_CancelSaveName(void)
+{
+    g_saveNameCancelPending = true;
+    g_saveNamePromptOpen = false;
+}
+
+// Ask the host to show the (shared) text prompt in save-name mode, prefilled
+// with the slot's current name (rename) or blank (new save).
+static void DG_SaveNamePrompt(void)
+{
+    g_saveNamePromptOpen = true;
+#ifdef __EMSCRIPTEN__
+    EM_ASM({
+        if (window.__doomSaveNamePrompt) window.__doomSaveNamePrompt(UTF8ToString($0));
+    }, DG_SaveNameCurrent());
+#else
+    fprintf(stderr, "save-name prompt requested (slot naming on touch)\n");
+#endif
+}
+
+// Inject the popup's result as a clean burst: over-clear any existing text with
+// backspaces (a no-op past the start, so the exact prior length doesn't matter),
+// type the new name, then Enter to commit — or just Escape to cancel/revert.
+static void PumpSaveNameQueue(void)
+{
+    if (!g_saveNameSendPending && !g_saveNameCancelPending) return;
+    if (g_saveNameCancelPending) {
+        DG_KeyEvent(1, DG_KEY_ESCAPE); DG_KeyEvent(0, DG_KEY_ESCAPE);
+    } else {
+        for (int i = 0; i < DG_SAVE_NAME_MAX; ++i) { DG_KeyEvent(1, DG_KEY_BACKSPACE); DG_KeyEvent(0, DG_KEY_BACKSPACE); }
+        for (const char* c = g_saveNameBuf; *c; ++c) { DG_KeyEvent(1, *c); DG_KeyEvent(0, *c); }
+        DG_KeyEvent(1, DG_KEY_ENTER); DG_KeyEvent(0, DG_KEY_ENTER);
+    }
+    g_saveNameSendPending = false;
+    g_saveNameCancelPending = false;
+}
+
 static void PollTouch()
 {
     if (!g_touch) return;
@@ -415,6 +473,20 @@ static void PollTouch()
     if (ui) {
         vc.ConsumeLookDelta();   // drain look so it doesn't jump on resume
         vc.ConsumeLookTap();     // drain taps so a menu tap doesn't fire on resume
+
+        // Save-name text entry just started (a save slot was picked): pop the
+        // JS text prompt instead of leaving the player stuck with no keyboard.
+        static bool prevSaveEdit = false;
+        bool saveEdit = DG_SaveNameEditActive() != 0;
+        if (saveEdit && !prevSaveEdit) DG_SaveNamePrompt();
+        prevSaveEdit = saveEdit;
+
+        // While that popup is open, freeze touch-menu input: the on-screen ENTER
+        // button is still "live" underneath and would otherwise reach Doom (e.g.
+        // confirming with whatever's currently in the slot before the typed name
+        // is injected). Mirrors g_kbSuppress for the physical-keyboard cheat path.
+        if (g_saveNamePromptOpen) return;
+
         EdgeKey(up,   tMUp,  DG_KEY_UPARROW);
         EdgeKey(down, tMDn,  DG_KEY_DOWNARROW);
         // Left/right on the disc = menu +/- (slider adjust: sound volume, screen
@@ -633,6 +705,7 @@ Lumi::Result AppInit(void** /*appstate*/, int argc, char* argv[])
 Lumi::Result AppIterate(void* /*appstate*/)
 {
     PumpCheatQueue();                  // inject a queued cheat first (clean key burst)
+    PumpSaveNameQueue();                // + a queued touch save-name, same way
     PollKeyboard();                    // feed keyboard edges into Doom
     if (!g_touchNoMouse) PollMouseButtons();  // mouse buttons (fire = left) — off on touch
     PollGamepad();                     // + gamepad, if one is connected

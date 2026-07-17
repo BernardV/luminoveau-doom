@@ -97,13 +97,14 @@ if(EMSCRIPTEN)
         # miniaudio's Web Audio glue reads Module.HEAPF32, but emscripten 6.0.2
         # doesn't attach heap views to Module by default -> "reading 'buffer' of
         # undefined" in onaudioprocess. Export them (kept updated across growth).
-        # ccall lets the shell's cheat prompt call DG_QueueCheat with the typed text.
+        # ccall lets the shell's text prompt call DG_QueueCheat / DG_QueueSaveName
+        # (+DG_CancelSaveName) with the typed text — same popup, two purposes.
         # FS is used by the shell to mount /saves on IndexedDB (persistent savegames).
         "-sEXPORTED_RUNTIME_METHODS=HEAPF32,HEAPF64,HEAP8,HEAPU8,HEAP16,HEAPU16,HEAP32,HEAPU32,ccall,FS"
         # Bundle the IDBFS filesystem backend (IndexedDB-backed /saves).
         "-lidbfs.js"
-        # Keep DG_QueueCheat (called from JS) past dead-code elimination.
-        "-sEXPORTED_FUNCTIONS=_main,_DG_QueueCheat")
+        # Keep the JS-called DG_Queue*/DG_Cancel* functions past dead-code elimination.
+        "-sEXPORTED_FUNCTIONS=_main,_DG_QueueCheat,_DG_QueueSaveName,_DG_CancelSaveName")
 endif()
 
 # ── Assets / packaging ────────────────────────────────────────────────────────

@@ -654,6 +654,21 @@ void M_SaveSelect(int choice)
 }
 
 //
+// Bridge (dg_bridge.h): lets the host know save-name text entry is active and
+// what it currently holds. Used by the touch UI, which has no keyboard and
+// instead pops a JS text prompt to fill this in (see main.cpp DG_SaveNamePrompt).
+//
+int DG_SaveNameEditActive(void)
+{
+    return saveStringEnter;
+}
+
+const char* DG_SaveNameCurrent(void)
+{
+    return saveStringEnter ? savegamestrings[saveSlot] : "";
+}
+
+//
 // Selected from DOOM menu
 //
 void M_SaveGame (int choice)

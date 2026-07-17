@@ -149,6 +149,14 @@ const char* DG_HudMessage(void);
 // or 0 for space/non-printable. Doom's HUD font, drawn at 320x200 scale.
 int DG_FontGlyph(int ch, int* lump, int* w, int* h);
 
+// ── Save-name text entry (m_menu.c) ─────────────────────────────────────────
+// The touch UI has no keyboard: selecting a save slot pops a JS text prompt
+// (main.cpp DG_SaveNamePrompt) instead of taking key events directly. These let
+// the host detect entry starting (edge-trigger the popup) and prefill it.
+#define DG_SAVE_NAME_MAX 23   // SAVESTRINGSIZE-1 in m_menu.c
+int DG_SaveNameEditActive(void);
+const char* DG_SaveNameCurrent(void);
+
 // ── Doom keycodes (mirror doomdef.h; kept here so C++ needn't include it) ───
 #define DG_KEY_RIGHTARROW 0xae
 #define DG_KEY_LEFTARROW  0xac

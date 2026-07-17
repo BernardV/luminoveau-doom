@@ -1,3 +1,4 @@
+
 # Plan: vervang Doom's software-renderer door een GPU-renderer op Luminoveau
 
 ## Context
